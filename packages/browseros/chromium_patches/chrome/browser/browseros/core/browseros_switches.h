@@ -1,9 +1,9 @@
 diff --git a/chrome/browser/browseros/core/browseros_switches.h b/chrome/browser/browseros/core/browseros_switches.h
 new file mode 100644
-index 0000000000000..8d6fcc30fd568
+index 0000000000000..7ac2f2f44fd1d
 --- /dev/null
 +++ b/chrome/browser/browseros/core/browseros_switches.h
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,89 @@
 +// Copyright 2024 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -83,6 +83,9 @@ index 0000000000000..8d6fcc30fd568
 +inline constexpr char kSparkleVerbose[] = "sparkle-verbose";
 +
 +// === Misc Switches ===
++
++// Selects a macOS Dock icon tint for CLI-launched BrowserOS variants.
++inline constexpr char kDockIcon[] = "browseros-dock-icon";
 +
 +// Indicates this is the first run of BrowserOS.
 +inline constexpr char kFirstRun[] = "browseros-welcome";
