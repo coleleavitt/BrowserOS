@@ -120,7 +120,6 @@ apps/server/
 │   └── rpc.ts                 # JSON-RPC type definitions
 ├── tests/
 │   ├── tools/                 # Tool-level tests
-│   ├── sdk/                   # SDK integration tests
 │   └── server.integration.test.ts
 └── package.json
 ```
@@ -149,7 +148,6 @@ See the [agent monorepo README](../../README.md) for full environment variable r
 ```bash
 bun run test:tools          # Tool-level tests
 bun run test:integration    # Full integration tests (requires running BrowserOS)
-bun run test:sdk            # SDK integration tests
 ```
 
 ### Building

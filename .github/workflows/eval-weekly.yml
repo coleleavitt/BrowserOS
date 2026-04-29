@@ -42,7 +42,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: packages/browseros-agent
-        run: bun install --ignore-scripts && bun run build:agent-sdk
+        run: bun install --ignore-scripts
 
       - name: Install Python eval dependencies
         run: pip install agisdk requests

@@ -36,7 +36,6 @@ import { createOAuthRoutes } from './routes/oauth'
 import { createOpenClawRoutes } from './routes/openclaw'
 import { createProviderRoutes } from './routes/provider'
 import { createRefinePromptRoutes } from './routes/refine-prompt'
-import { createSdkRoutes } from './routes/sdk'
 import { createShutdownRoute } from './routes/shutdown'
 import { createSkillsRoutes } from './routes/skills'
 import { createSoulRoutes } from './routes/soul'
@@ -197,14 +196,6 @@ export async function createHttpServer(config: HttpServerConfig) {
         browserosId,
         klavisRef,
         aiSdkDevtoolsEnabled: config.aiSdkDevtoolsEnabled,
-      }),
-    )
-    .route(
-      '/sdk',
-      createSdkRoutes({
-        port,
-        browser,
-        browserosId,
       }),
     )
     .route('/agents', agentRoutes)
