@@ -24,7 +24,11 @@ func init() {
 			if err != nil {
 				return err
 			}
-			status, err := engine.InspectWorkspace(cmd.Context(), ws, info)
+			status, err := engine.InspectWorkspace(cmd.Context(), engine.InspectWorkspaceOptions{
+				Workspace: ws,
+				Repo:      info,
+				Progress:  commandProgress(cmd),
+			})
 			if err != nil {
 				return err
 			}

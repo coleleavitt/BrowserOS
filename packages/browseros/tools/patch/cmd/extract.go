@@ -52,6 +52,7 @@ func init() {
 				Squash:     squash,
 				Base:       base,
 				Filters:    filters,
+				Progress:   commandProgress(cmd),
 			})
 			if err != nil {
 				return err

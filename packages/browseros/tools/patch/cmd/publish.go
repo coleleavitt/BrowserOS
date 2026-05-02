@@ -24,7 +24,12 @@ func init() {
 			if len(args) == 1 {
 				remote = args[0]
 			}
-			result, err := engine.Publish(cmd.Context(), info, remote, message)
+			result, err := engine.Publish(cmd.Context(), engine.PublishOptions{
+				Repo:     info,
+				Remote:   remote,
+				Message:  message,
+				Progress: commandProgress(cmd),
+			})
 			if err != nil {
 				return err
 			}

@@ -15,6 +15,7 @@ type SyncOptions struct {
 	Repo      *repo.Info
 	Remote    string
 	Rebase    bool
+	Progress  Progress
 }
 
 type SyncResult struct {
@@ -32,6 +33,7 @@ func Sync(ctx context.Context, opts SyncOptions) (*SyncResult, error) {
 	if opts.Remote == "" {
 		opts.Remote = "origin"
 	}
+	reportProgress(opts.Progress, "Checking patch repo status")
 	dirty, err := git.IsDirty(ctx, opts.Repo.Root)
 	if err != nil {
 		return nil, err
@@ -43,6 +45,7 @@ func Sync(ctx context.Context, opts SyncOptions) (*SyncResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	reportProgress(opts.Progress, "Pulling patch repo from %s/%s", opts.Remote, branch)
 	if err := git.PullRebase(ctx, opts.Repo.Root, opts.Remote, branch); err != nil {
 		return nil, err
 	}
@@ -60,13 +63,18 @@ func Sync(ctx context.Context, opts SyncOptions) (*SyncResult, error) {
 		RepoHead:  head,
 		Rebased:   opts.Rebase,
 	}
-	status, err := InspectWorkspace(ctx, opts.Workspace, opts.Repo)
+	status, err := InspectWorkspace(ctx, InspectWorkspaceOptions{
+		Workspace: opts.Workspace,
+		Repo:      opts.Repo,
+		Progress:  opts.Progress,
+	})
 	if err != nil {
 		return nil, err
 	}
 	divergent := append([]string{}, status.NeedsUpdate...)
 	divergent = append(divergent, status.Orphaned...)
 	if len(divergent) > 0 {
+		reportProgress(opts.Progress, "Stashing %d divergent %s", len(divergent), plural(len(divergent), "file", "files"))
 		stashRef, err := git.StashPush(ctx, opts.Workspace.Path, "browseros-patch sync stash", true, divergent)
 		if err != nil {
 			return nil, err
@@ -84,6 +92,7 @@ func Sync(ctx context.Context, opts SyncOptions) (*SyncResult, error) {
 			Repo:      opts.Repo,
 			Reset:     true,
 			Mode:      "sync-reset",
+			Progress:  opts.Progress,
 		})
 		if err != nil {
 			return nil, err
@@ -102,6 +111,7 @@ func Sync(ctx context.Context, opts SyncOptions) (*SyncResult, error) {
 			ChangedRef: state.LastSyncRev,
 			RangeEnd:   head,
 			Mode:       "sync",
+			Progress:   opts.Progress,
 		})
 		if err != nil {
 			return nil, err
@@ -115,6 +125,7 @@ func Sync(ctx context.Context, opts SyncOptions) (*SyncResult, error) {
 		}
 	}
 	if opts.Rebase && result.StashRef != "" {
+		reportProgress(opts.Progress, "Restoring stashed local changes")
 		if err := git.StashPop(ctx, opts.Workspace.Path, result.StashRef); err != nil {
 			return nil, err
 		}

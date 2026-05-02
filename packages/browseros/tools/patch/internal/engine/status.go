@@ -25,31 +25,41 @@ type WorkspaceStatus struct {
 	SyncState      string          `json:"sync_state"`
 }
 
-func InspectWorkspace(ctx context.Context, ws workspace.Entry, repoInfo *repo.Info) (*WorkspaceStatus, error) {
-	head, err := git.HeadRev(ctx, repoInfo.Root)
+type InspectWorkspaceOptions struct {
+	Workspace workspace.Entry
+	Repo      *repo.Info
+	Progress  Progress
+}
+
+// InspectWorkspace compares a workspace against the patch repo and classifies drift.
+func InspectWorkspace(ctx context.Context, opts InspectWorkspaceOptions) (*WorkspaceStatus, error) {
+	reportProgress(opts.Progress, "Inspecting workspace drift")
+	head, err := git.HeadRev(ctx, opts.Repo.Root)
 	if err != nil {
 		return nil, err
 	}
-	state, err := workspace.LoadState(ws.Path)
+	state, err := workspace.LoadState(opts.Workspace.Path)
 	if err != nil {
 		return nil, err
 	}
-	repoSet, err := patch.LoadRepoPatchSet(repoInfo.PatchesDir, nil)
+	reportProgress(opts.Progress, "Loading repo patch set")
+	repoSet, err := patch.LoadRepoPatchSet(opts.Repo.PatchesDir, nil)
 	if err != nil {
 		return nil, err
 	}
-	localSet, err := patch.BuildWorkingTreePatchSet(ctx, ws.Path, repoInfo.BaseCommit, nil)
+	reportProgress(opts.Progress, "Building workspace patch set")
+	localSet, err := patch.BuildWorkingTreePatchSet(ctx, opts.Workspace.Path, opts.Repo.BaseCommit, nil)
 	if err != nil {
 		return nil, err
 	}
 	status := &WorkspaceStatus{
-		Workspace:      ws,
+		Workspace:      opts.Workspace,
 		RepoHead:       head,
-		BaseCommit:     repoInfo.BaseCommit,
+		BaseCommit:     opts.Repo.BaseCommit,
 		LastApplyRev:   state.LastApplyRev,
 		LastSyncRev:    state.LastSyncRev,
 		LastExtractRev: state.LastExtractRev,
-		ActiveResolve:  resolve.Exists(ws.Path),
+		ActiveResolve:  resolve.Exists(opts.Workspace.Path),
 	}
 	for _, delta := range patch.Compare(repoSet, localSet) {
 		switch delta.Kind {

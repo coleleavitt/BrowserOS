@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/browseros-ai/BrowserOS/packages/browseros/tools/patch/internal/engine"
 	"github.com/browseros-ai/BrowserOS/packages/browseros/tools/patch/internal/repo"
+	"github.com/browseros-ai/BrowserOS/packages/browseros/tools/patch/internal/ui"
 	"github.com/browseros-ai/BrowserOS/packages/browseros/tools/patch/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -46,4 +48,14 @@ func ensureRepoConfigured(override string) error {
 	}
 	appState.Config.PatchesRepo = info.Root
 	return nil
+}
+
+// commandProgress routes long-running engine updates to stderr in human mode only.
+func commandProgress(cmd *cobra.Command) engine.Progress {
+	if jsonOut {
+		return nil
+	}
+	return engine.ProgressFunc(func(message string) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", ui.Muted("..."), message)
+	})
 }

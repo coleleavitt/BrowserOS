@@ -31,6 +31,7 @@ func init() {
 				Repo:      info,
 				Remote:    remote,
 				Rebase:    rebase,
+				Progress:  commandProgress(cmd),
 			})
 			if err != nil {
 				return err

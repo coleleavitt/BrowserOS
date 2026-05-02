@@ -23,6 +23,7 @@ type ApplyOptions struct {
 	RangeEnd   string
 	Filters    []string
 	Mode       string
+	Progress   Progress
 }
 
 type ApplyResult struct {
@@ -41,10 +42,12 @@ func Apply(ctx context.Context, opts ApplyOptions) (*ApplyResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	reportProgress(opts.Progress, "Inspecting workspace changes")
 	ops, orphaned, err := buildApplyOperations(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
+	reportProgress(opts.Progress, "Applying %d patch %s", len(ops), plural(len(ops), "operation", "operations"))
 	result := &ApplyResult{
 		Workspace:  opts.Workspace.Name,
 		Mode:       applyMode(opts),
@@ -61,7 +64,7 @@ func Apply(ctx context.Context, opts ApplyOptions) (*ApplyResult, error) {
 		}
 		return result, nil
 	}
-	next, err := applyOperationRange(ctx, opts.Workspace, opts.Repo, ops, 0, nil, nil, result)
+	next, err := applyOperationRange(ctx, opts.Workspace, opts.Repo, ops, 0, nil, nil, result, opts.Progress)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +80,14 @@ func Apply(ctx context.Context, opts ApplyOptions) (*ApplyResult, error) {
 	return result, nil
 }
 
-func Continue(ctx context.Context, ws workspace.Entry) (*ApplyResult, error) {
+type ContinueOptions struct {
+	Workspace workspace.Entry
+	Progress  Progress
+}
+
+// Continue resumes a saved patch application after the current conflict is resolved.
+func Continue(ctx context.Context, opts ContinueOptions) (*ApplyResult, error) {
+	ws := opts.Workspace
 	state, err := resolve.Load(ws.Path)
 	if err != nil {
 		return nil, err
@@ -102,7 +112,8 @@ func Continue(ctx context.Context, ws workspace.Entry) (*ApplyResult, error) {
 		Applied:    append([]string{}, state.Resolved...),
 		Conflicts:  nil,
 	}
-	next, err := applyOperationRange(ctx, ws, repoInfo, state.Operations, state.Current+1, state.Resolved, state.Skipped, result)
+	reportProgress(opts.Progress, "Continuing patch resolution")
+	next, err := applyOperationRange(ctx, ws, repoInfo, state.Operations, state.Current+1, state.Resolved, state.Skipped, result, opts.Progress)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +128,14 @@ func Continue(ctx context.Context, ws workspace.Entry) (*ApplyResult, error) {
 	return result, nil
 }
 
-func Skip(ctx context.Context, ws workspace.Entry) (*ApplyResult, error) {
+type SkipOptions struct {
+	Workspace workspace.Entry
+	Progress  Progress
+}
+
+// Skip records the current conflict as skipped and resumes the remaining patch operations.
+func Skip(ctx context.Context, opts SkipOptions) (*ApplyResult, error) {
+	ws := opts.Workspace
 	state, err := resolve.Load(ws.Path)
 	if err != nil {
 		return nil, err
@@ -138,7 +156,8 @@ func Skip(ctx context.Context, ws workspace.Entry) (*ApplyResult, error) {
 		RepoRev:    state.RepoRev,
 		Applied:    append([]string{}, state.Resolved...),
 	}
-	next, err := applyOperationRange(ctx, ws, repoInfo, state.Operations, state.Current+1, state.Resolved, state.Skipped, result)
+	reportProgress(opts.Progress, "Skipping current conflict")
+	next, err := applyOperationRange(ctx, ws, repoInfo, state.Operations, state.Current+1, state.Resolved, state.Skipped, result, opts.Progress)
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +263,7 @@ func applyOperationRange(
 	resolved []string,
 	skipped []string,
 	result *ApplyResult,
+	progress Progress,
 ) (int, error) {
 	repoSet, err := patch.LoadRepoPatchSet(repoInfo.PatchesDir, nil)
 	if err != nil {
@@ -251,6 +271,7 @@ func applyOperationRange(
 	}
 	for idx := start; idx < len(ops); idx++ {
 		op := ops[idx]
+		reportProgress(progress, "Applying %d/%d %s", idx+1, len(ops), op.ChromiumPath)
 		result.ResetPaths = append(result.ResetPaths, op.ChromiumPath)
 		if op.OldPath != "" {
 			if err := git.ResetPathToCommit(ctx, ws.Path, repoInfo.BaseCommit, op.OldPath); err != nil {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -87,7 +88,7 @@ func TestPublishReturnsHelpfulErrorWhenNothingChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("repo.Load: %v", err)
 	}
-	if _, err := Publish(ctx, repoInfo, "", ""); err == nil || !strings.Contains(err.Error(), "nothing to publish") {
+	if _, err := Publish(ctx, PublishOptions{Repo: repoInfo}); err == nil || !strings.Contains(err.Error(), "nothing to publish") {
 		t.Fatalf("expected helpful no-op error, got %v", err)
 	}
 }
@@ -108,6 +109,47 @@ func TestOperationsFromChangesNormalizesOldPath(t *testing.T) {
 	if ops[0].OldPath != "chrome/old.cc" {
 		t.Fatalf("unexpected old path: %q", ops[0].OldPath)
 	}
+}
+
+func TestApplyReportsPatchProgress(t *testing.T) {
+	ctx := context.Background()
+	workspacePath := initGitRepo(t)
+	writeFile(t, filepath.Join(workspacePath, "chrome", "browser.cc"), "base\n")
+	runGit(t, workspacePath, "add", "chrome/browser.cc")
+	runGit(t, workspacePath, "commit", "-m", "workspace base")
+	baseCommit := gitOutput(t, workspacePath, "rev-parse", "HEAD")
+
+	writeFile(t, filepath.Join(workspacePath, "chrome", "browser.cc"), "patched\n")
+	diff, err := git.DiffText(ctx, workspacePath, baseCommit, "--", "chrome/browser.cc")
+	if err != nil {
+		t.Fatalf("DiffText: %v", err)
+	}
+	runGit(t, workspacePath, "checkout", "--", "chrome/browser.cc")
+
+	repoRoot := initGitRepo(t)
+	writeFile(t, filepath.Join(repoRoot, "BASE_COMMIT"), baseCommit+"\n")
+	writeFile(t, filepath.Join(repoRoot, "chromium_patches", "chrome", "browser.cc"), diff)
+	runGit(t, repoRoot, "add", "BASE_COMMIT", "chromium_patches/chrome/browser.cc")
+	runGit(t, repoRoot, "commit", "-m", "patch repo init")
+	repoInfo, err := repo.Load(repoRoot)
+	if err != nil {
+		t.Fatalf("repo.Load: %v", err)
+	}
+
+	progress := &progressRecorder{}
+	_, err = Apply(ctx, ApplyOptions{
+		Workspace: workspace.Entry{Name: "ws", Path: workspacePath},
+		Repo:      repoInfo,
+		Progress:  progress,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	progress.requireContains(t, "Inspecting workspace changes")
+	progress.requireContains(t, "Applying 1 patch operation")
+	progress.requireContains(t, "Applying 1/1 chrome/browser.cc")
+	assertFile(t, filepath.Join(workspacePath, "chrome", "browser.cc"), "patched\n")
 }
 
 func TestSyncClearsPendingStashAfterSuccessfulNonRebaseRun(t *testing.T) {
@@ -168,6 +210,47 @@ func TestSyncClearsPendingStashAfterSuccessfulNonRebaseRun(t *testing.T) {
 	}
 }
 
+func TestSyncReportsPatchRepoProgress(t *testing.T) {
+	ctx := context.Background()
+	workspacePath := initGitRepo(t)
+	writeFile(t, filepath.Join(workspacePath, "chrome", "browser.cc"), "base\n")
+	runGit(t, workspacePath, "add", "chrome/browser.cc")
+	runGit(t, workspacePath, "commit", "-m", "workspace base")
+	baseCommit := gitOutput(t, workspacePath, "rev-parse", "HEAD")
+
+	remoteRepo := t.TempDir()
+	runGit(t, remoteRepo, "init", "--bare")
+
+	repoRoot := initGitRepo(t)
+	if err := os.MkdirAll(filepath.Join(repoRoot, "chromium_patches"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	writeFile(t, filepath.Join(repoRoot, "BASE_COMMIT"), baseCommit+"\n")
+	runGit(t, repoRoot, "add", "BASE_COMMIT")
+	runGit(t, repoRoot, "commit", "-m", "patch repo init")
+	runGit(t, repoRoot, "remote", "add", "origin", remoteRepo)
+	runGit(t, repoRoot, "push", "-u", "origin", "HEAD")
+
+	repoInfo, err := repo.Load(repoRoot)
+	if err != nil {
+		t.Fatalf("repo.Load: %v", err)
+	}
+	progress := &progressRecorder{}
+	_, err = Sync(ctx, SyncOptions{
+		Workspace: workspace.Entry{Name: "ws", Path: workspacePath},
+		Repo:      repoInfo,
+		Remote:    "origin",
+		Progress:  progress,
+	})
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	progress.requireContains(t, "Checking patch repo status")
+	progress.requireContains(t, "Pulling patch repo from origin/")
+	progress.requireContains(t, "Inspecting workspace drift")
+}
+
 func initGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -175,6 +258,24 @@ func initGitRepo(t *testing.T) string {
 	runGit(t, dir, "config", "user.name", "Test User")
 	runGit(t, dir, "config", "user.email", "test@example.com")
 	return dir
+}
+
+type progressRecorder struct {
+	messages []string
+}
+
+func (p *progressRecorder) Step(message string) {
+	p.messages = append(p.messages, message)
+}
+
+func (p *progressRecorder) requireContains(t *testing.T, want string) {
+	t.Helper()
+	if slices.ContainsFunc(p.messages, func(message string) bool {
+		return strings.Contains(message, want)
+	}) {
+		return
+	}
+	t.Fatalf("progress missing %q in %#v", want, p.messages)
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

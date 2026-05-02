@@ -38,6 +38,7 @@ func init() {
 				ChangedRef: changed,
 				RangeEnd:   rangeEnd,
 				Filters:    filters,
+				Progress:   commandProgress(cmd),
 			})
 			if err != nil {
 				return err

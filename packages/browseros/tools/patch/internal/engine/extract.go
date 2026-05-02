@@ -19,6 +19,7 @@ type ExtractOptions struct {
 	Squash     bool
 	Base       string
 	Filters    []string
+	Progress   Progress
 }
 
 type ExtractResult struct {
@@ -43,6 +44,7 @@ func Extract(ctx context.Context, opts ExtractOptions) (*ExtractResult, error) {
 	switch {
 	case opts.Commit != "":
 		mode = "commit"
+		reportProgress(opts.Progress, "Extracting patches from commit %s", opts.Commit)
 		set, err = patch.BuildCommitPatchSet(ctx, opts.Workspace.Path, opts.Commit, opts.Base, opts.Filters)
 		if err == nil {
 			if opts.Base != "" {
@@ -57,6 +59,7 @@ func Extract(ctx context.Context, opts ExtractOptions) (*ExtractResult, error) {
 		}
 	case opts.RangeStart != "" && opts.RangeEnd != "":
 		mode = "range"
+		reportProgress(opts.Progress, "Extracting patches from range %s..%s", opts.RangeStart, opts.RangeEnd)
 		set, err = patch.BuildRangePatchSet(ctx, opts.Workspace.Path, opts.RangeStart, opts.RangeEnd, opts.Base, opts.Squash, opts.Filters)
 		if err == nil {
 			if opts.Base != "" || opts.Squash {
@@ -71,6 +74,7 @@ func Extract(ctx context.Context, opts ExtractOptions) (*ExtractResult, error) {
 		}
 	default:
 		mode = "working-tree"
+		reportProgress(opts.Progress, "Extracting workspace changes")
 		set, err = patch.BuildWorkingTreePatchSet(ctx, opts.Workspace.Path, base, opts.Filters)
 		if err == nil && len(opts.Filters) > 0 {
 			scope = opts.Filters
@@ -79,6 +83,7 @@ func Extract(ctx context.Context, opts ExtractOptions) (*ExtractResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	reportProgress(opts.Progress, "Writing %d patch %s", len(set), plural(len(set), "file", "files"))
 	written, deleted, err := patch.WriteRepoPatchSet(opts.Repo.PatchesDir, set, scope)
 	if err != nil {
 		return nil, err

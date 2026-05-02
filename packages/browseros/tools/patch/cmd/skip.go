@@ -20,7 +20,10 @@ func init() {
 			if err != nil {
 				return err
 			}
-			result, err := engine.Skip(cmd.Context(), ws)
+			result, err := engine.Skip(cmd.Context(), engine.SkipOptions{
+				Workspace: ws,
+				Progress:  commandProgress(cmd),
+			})
 			if err != nil {
 				return err
 			}
