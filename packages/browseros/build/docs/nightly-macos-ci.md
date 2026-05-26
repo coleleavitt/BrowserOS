@@ -90,7 +90,7 @@ Add these in GitHub repo settings under Actions variables:
 The workflow calls `build/scripts/bump_version.py`.
 
 - Nightly schedule: `offset+build`, commit and push enabled, R2 upload enabled
-- Manual dispatch default: `offset-only`, commit disabled, R2 upload enabled
+- Manual dispatch default: `offset+build`, commit disabled, R2 upload enabled
 - Manual hotfix option: choose `offset+patch`
 - Manual dry run option: choose `none`
 
@@ -116,6 +116,9 @@ branch in GitHub's native branch picker, then set inputs:
 - `bump`: `offset-only`, `offset+build`, `offset+patch`, or `none`
 - `commit_version`: commit and push the bumped version files
 - `upload_to_r2`: publish to R2/CDN after packaging, enabled by default
+
+Manual dispatch requires approval through the `release-core` environment.
+Scheduled nightly runs bypass that approval job and run automatically.
 
 The DMG is always uploaded as a run artifact when packaging succeeds.
 

@@ -9,7 +9,7 @@ on:
       bump:
         description: Version bump level
         type: choice
-        default: offset-only
+        default: offset+build
         options:
           - offset-only
           - offset+build
@@ -32,7 +32,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorize_manual_dispatch:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, macOS, ARM64, browseros-builder]
+    environment: release-core
+    steps:
+      - run: echo "Manual dispatch approved through release-core."
+
   build:
+    needs: authorize_manual_dispatch
+    if: |
+      always() &&
+      (github.event_name == 'schedule' || needs.authorize_manual_dispatch.result == 'success')
     runs-on: [self-hosted, macOS, ARM64, browseros-builder]
     timeout-minutes: 600
     env:
@@ -81,7 +92,7 @@ jobs:
             upload_to_r2="true"
           else
             target_ref="$DISPATCH_REF"
-            bump_mode="${DISPATCH_BUMP:-offset-only}"
+            bump_mode="${DISPATCH_BUMP:-offset+build}"
             commit_version="${DISPATCH_COMMIT_VERSION:-false}"
             upload_to_r2="${DISPATCH_UPLOAD_TO_R2:-true}"
           fi
