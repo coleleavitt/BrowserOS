@@ -71,7 +71,7 @@ const FEATURE_CONFIG: { [K in Feature]: FeatureConfig } = {
   [Feature.UNIFIED_PORT_SUPPORT]: { minBrowserOSVersion: '0.36.1.0' },
   [Feature.CUSTOMIZATION_SUPPORT]: { minBrowserOSVersion: '0.36.1.0' },
   [Feature.WORKSPACE_FOLDER_SUPPORT]: { minBrowserOSVersion: '0.36.4.0' },
-  [Feature.PROXY_SUPPORT]: { minBrowserOSVersion: '0.39.0.1' },
+  [Feature.PROXY_SUPPORT]: { minBrowserOSVersion: '0.46.0.0' },
   [Feature.PREVIOUS_CONVERSATION_ARRAY]: { minServerVersion: '0.0.64' },
   [Feature.NEWTAB_CHAT_SUPPORT]: { minBrowserOSVersion: '0.40.0.0' },
   [Feature.VERTICAL_TABS_SUPPORT]: { minBrowserOSVersion: '0.42.0.0' },

@@ -76,6 +76,9 @@ export const MCP_EXTERNAL_ACCESS_DISABLED_EVENT =
 export const MCP_SERVER_RESTARTED_EVENT = 'settings.mcp_server.restarted'
 
 /** @public */
+export const MCP_PROXY_PORT_CHANGED_EVENT = 'settings.mcp_proxy_port.changed'
+
+/** @public */
 export const AGENT_CREATED_EVENT = 'agents.agent.created'
 
 /** @public */

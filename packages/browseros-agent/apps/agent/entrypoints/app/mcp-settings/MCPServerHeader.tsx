@@ -6,12 +6,13 @@ import {
   RefreshCw,
   Server,
 } from 'lucide-react'
-import { type FC, useCallback, useState } from 'react'
+import { type FC, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { MCP_SERVER_RESTARTED_EVENT } from '@/lib/constants/analyticsEvents'
-import { sendServerMessage } from '@/lib/messaging/server/serverMessages'
 import { track } from '@/lib/metrics/track'
+import { ServerPortEditor } from './ServerPortEditor'
+import { waitForServerHealth } from './server-health'
 
 interface MCPServerHeaderProps {
   serverUrl: string | null
@@ -21,8 +22,6 @@ interface MCPServerHeaderProps {
 }
 
 const DOCS_URL = 'https://docs.browseros.com/features/use-with-claude-code'
-const HEALTH_CHECK_TIMEOUT_MS = 60_000
-const HEALTH_CHECK_INTERVAL_MS = 2_000
 
 export const MCPServerHeader: FC<MCPServerHeaderProps> = ({
   serverUrl,
@@ -44,15 +43,6 @@ export const MCPServerHeader: FC<MCPServerHeaderProps> = ({
     }
   }
 
-  const checkServerHealth = useCallback(async (): Promise<boolean> => {
-    try {
-      const result = await sendServerMessage('checkHealth', undefined)
-      return result.healthy
-    } catch {
-      return false
-    }
-  }, [])
-
   const handleRestart = async () => {
     setIsRestarting(true)
     try {
@@ -61,24 +51,7 @@ export const MCPServerHeader: FC<MCPServerHeaderProps> = ({
       const adapter = getBrowserOSAdapter()
       await adapter.setPref(BROWSEROS_PREFS.RESTART_SERVER, true)
 
-      const startTime = Date.now()
-      const waitForHealth = (): Promise<boolean> =>
-        new Promise((resolve) => {
-          const check = async () => {
-            if (Date.now() - startTime >= HEALTH_CHECK_TIMEOUT_MS) {
-              resolve(false)
-              return
-            }
-            if (await checkServerHealth()) {
-              resolve(true)
-              return
-            }
-            setTimeout(check, HEALTH_CHECK_INTERVAL_MS)
-          }
-          setTimeout(check, HEALTH_CHECK_INTERVAL_MS)
-        })
-
-      const healthy = await waitForHealth()
+      const healthy = await waitForServerHealth()
       if (healthy) {
         track(MCP_SERVER_RESTARTED_EVENT)
         toast.success('Server restarted successfully')
@@ -161,6 +134,7 @@ export const MCPServerHeader: FC<MCPServerHeaderProps> = ({
                   <RefreshCw className="h-4 w-4" />
                 )}
               </Button>
+              <ServerPortEditor onPortChanged={onServerRestart} />
             </div>
           </div>
         </div>

@@ -86,7 +86,7 @@ export class ProxyPortError extends Error {
   }
 }
 
-async function getProxyPort(): Promise<number> {
+export async function getProxyPort(): Promise<number> {
   try {
     const adapter = getBrowserOSAdapter()
     const pref = await adapter.getPref(BROWSEROS_PREFS.PROXY_PORT)
