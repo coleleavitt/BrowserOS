@@ -6,16 +6,16 @@
 
 import { randomUUID } from 'node:crypto'
 import { desc, eq } from 'drizzle-orm'
-import { type BrowserOsDatabase, getDb } from '../db'
-import { type AgentDefinitionRow, agentDefinitions } from '../db/schema'
-import { logger } from '../logger'
+import { type BrowserOsDatabase, getDb } from '../../db'
+import { type AgentDefinitionRow, agentDefinitions } from '../../db/schema'
+import { logger } from '../../logger'
 import {
   isAgentAdapter,
   resolveDefaultModelId,
   resolveDefaultReasoningEffort,
-} from './agent-catalog'
+} from '../adapters/catalog'
+import type { AgentDefinition } from '../agent-types'
 import type { AgentStore, CreateAgentInput } from './agent-store'
-import type { AgentDefinition } from './agent-types'
 
 /** Persists BrowserOS-owned harness agent definitions in the process SQLite database. */
 export class DbAgentStore implements AgentStore {

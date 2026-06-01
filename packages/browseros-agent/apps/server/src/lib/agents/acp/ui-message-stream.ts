@@ -6,7 +6,7 @@
 
 import type { FinishReason, UIMessageChunk } from 'ai'
 
-import type { AgentStreamEvent } from './types'
+import type { AgentStreamEvent } from '../types'
 
 const TEXT_PART_ID = 'acp-text'
 const REASONING_PART_ID = 'acp-reasoning'

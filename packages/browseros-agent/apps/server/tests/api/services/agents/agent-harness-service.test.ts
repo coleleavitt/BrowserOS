@@ -12,8 +12,8 @@ import {
   AgentHarnessService,
   type EnsureVmRuntimeReady,
 } from '../../../../src/api/services/agents/agent-harness-service'
-import type { AgentStore } from '../../../../src/lib/agents/agent-store'
 import type { AgentDefinition } from '../../../../src/lib/agents/agent-types'
+import type { AgentStore } from '../../../../src/lib/agents/storage/agent-store'
 import type {
   AgentRuntime,
   AgentStreamEvent,

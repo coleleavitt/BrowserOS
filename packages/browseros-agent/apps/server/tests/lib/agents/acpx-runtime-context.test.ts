@@ -22,7 +22,7 @@ import {
   materializeCodexHome,
   resolveAgentRuntimePaths,
   wrapCommandWithEnv,
-} from '../../../src/lib/agents/acpx-runtime-context'
+} from '../../../src/lib/agents/acpx/runtime-context'
 import type { AgentDefinition } from '../../../src/lib/agents/agent-types'
 
 describe('acpx runtime context helpers', () => {

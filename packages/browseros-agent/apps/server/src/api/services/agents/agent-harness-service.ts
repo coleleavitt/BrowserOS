@@ -4,34 +4,34 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { AcpxRuntime } from '../../../lib/agents/acpx-runtime'
-import {
-  type ActiveTurnInfo,
-  type TurnFrame,
-  TurnRegistry,
-} from '../../../lib/agents/active-turn-registry'
-import type {
-  AgentStore,
-  CreateAgentInput,
-} from '../../../lib/agents/agent-store'
+import { AcpxRuntime } from '../../../lib/agents/acpx/runtime'
 import type { AgentDefinition } from '../../../lib/agents/agent-types'
-import { DbAgentStore } from '../../../lib/agents/db-agent-store'
 import {
   getHermesHarnessHostDir,
   writeHermesPerAgentProvider,
 } from '../../../lib/agents/hermes/hermes-paths'
 import { getHermesProviderMapping } from '../../../lib/agents/hermes/hermes-provider-map'
+import type {
+  AgentStore,
+  CreateAgentInput,
+} from '../../../lib/agents/storage/agent-store'
+import { DbAgentStore } from '../../../lib/agents/storage/db-agent-store'
 import {
   FileMessageQueue,
   type QueuedMessage,
   type QueuedMessageAttachment,
-} from '../../../lib/agents/message-queue'
+} from '../../../lib/agents/storage/message-queue'
+import {
+  type ActiveTurnInfo,
+  type TurnFrame,
+  TurnRegistry,
+} from '../../../lib/agents/turns/active-turn-registry'
 
 export {
   MessageQueueFullError,
   type QueuedMessage,
   type QueuedMessageAttachment,
-} from '../../../lib/agents/message-queue'
+} from '../../../lib/agents/storage/message-queue'
 
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'

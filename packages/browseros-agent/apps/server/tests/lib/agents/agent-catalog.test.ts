@@ -9,7 +9,7 @@ import {
   getAgentAdapterDescriptor,
   isSupportedAgentModel,
   isSupportedReasoningEffort,
-} from '../../../src/lib/agents/agent-catalog'
+} from '../../../src/lib/agents/adapters/catalog'
 
 describe('AGENT_ADAPTER_CATALOG', () => {
   it('exposes shipped adapters with model and effort options', () => {

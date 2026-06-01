@@ -4,17 +4,14 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { resolveBundledBun } from './bundled-bun'
-import {
-  HOST_ACP_ADAPTER_CONFIG,
-  type HostAcpAdapter,
-} from './host-acp-adapter-config'
 import {
   type HostCommandRunner,
   type ResolvedHostBinary,
   resolveHostBinary,
   runHostCommand,
-} from './host-binary-resolver'
+} from './binary-resolver'
+import { resolveBundledBun } from './bundled-bun'
+import { HOST_ACP_ADAPTER_CONFIG, type HostAcpAdapter } from './config'
 import { probeNpxPackageCache } from './npx-package-cache'
 
 export { probeNpxPackageCache } from './npx-package-cache'

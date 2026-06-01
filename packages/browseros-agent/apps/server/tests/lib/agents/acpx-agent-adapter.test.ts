@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { prepareAcpxAgentContext } from '../../../src/lib/agents/acpx-agent-adapter'
+import { prepareAcpxAgentContext } from '../../../src/lib/agents/acpx/agent-adapter'
 import type { AgentDefinition } from '../../../src/lib/agents/agent-types'
 
 describe('prepareAcpxAgentContext', () => {

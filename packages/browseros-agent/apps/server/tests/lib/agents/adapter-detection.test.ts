@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import {
   detectHostAdapter,
   probeNpxPackageCache,
-} from '../../../src/lib/agents/adapter-detection'
+} from '../../../src/lib/agents/host-acp/detection'
 
 describe('adapter detection', () => {
   it('reports ready when the adapter package is cached and auth probe succeeds', async () => {

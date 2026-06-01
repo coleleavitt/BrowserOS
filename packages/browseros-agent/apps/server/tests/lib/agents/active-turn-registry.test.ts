@@ -8,7 +8,7 @@ import {
   RingBuffer,
   type TurnFrame,
   TurnRegistry,
-} from '../../../src/lib/agents/active-turn-registry'
+} from '../../../src/lib/agents/turns/active-turn-registry'
 
 const registries: TurnRegistry[] = []
 afterEach(() => {

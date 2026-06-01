@@ -18,12 +18,12 @@ import {
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+import type { AgentDefinition } from '../agent-types'
 import {
   MEMORY_TEMPLATE,
   RUNTIME_SKILLS,
   SOUL_TEMPLATE,
-} from './acpx-runtime-templates'
-import type { AgentDefinition } from './agent-types'
+} from './runtime-templates'
 
 export const BROWSEROS_ACPX_OPERATING_PROMPT_VERSION = '2026-05-02.v1'
 

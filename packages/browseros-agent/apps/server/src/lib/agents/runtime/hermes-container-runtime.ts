@@ -36,11 +36,11 @@ import {
 import type {
   PrepareAcpxAgentContextInput,
   PreparedAcpxAgentContext,
-} from '../acpx-agent-adapter'
+} from '../acpx/agent-adapter'
 import {
   finishBrowserosManagedContext,
   prepareBrowserosManagedContext,
-} from '../acpx-agent-common'
+} from '../acpx/agent-common'
 import {
   getHermesAgentHomeHostDir,
   getHermesHarnessHostDir,
@@ -209,7 +209,7 @@ function translateHermesHomeToContainerPath(
  * when the runtime spawns `hermes acp` via `nerdctl exec`.
  *
  * Pure function — no runtime instance required, used directly by
- * the per-adapter prepare router in `acpx-agent-adapter.ts`.
+ * the per-adapter prepare router in `acpx/agent-adapter.ts`.
  */
 export async function prepareHermesContext(
   input: PrepareAcpxAgentContextInput,

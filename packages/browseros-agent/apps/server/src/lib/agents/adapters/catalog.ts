@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import type { AgentAdapter, AgentAdapterDescriptor } from './agent-types'
+import type { AgentAdapter, AgentAdapterDescriptor } from '../agent-types'
 
 export const AGENT_ADAPTER_CATALOG: AgentAdapterDescriptor[] = [
   {

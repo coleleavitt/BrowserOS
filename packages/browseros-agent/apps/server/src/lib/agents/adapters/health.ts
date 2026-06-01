@@ -4,19 +4,19 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+import type { AgentAdapter } from '../agent-types'
+import { isHostAcpAdapter } from '../host-acp/config'
 import {
   type AdapterHealth,
   type DetectHostAdapterOptions,
   detectHostAdapter,
-} from './adapter-detection'
-import type { AgentAdapter } from './agent-types'
-import { isHostAcpAdapter } from './host-acp-adapter-config'
+} from '../host-acp/detection'
 import {
   type AgentRuntime,
   type AgentRuntimeRegistry,
   getAgentRuntimeRegistry,
   HostProcessAgentRuntime,
-} from './runtime'
+} from '../runtime'
 
 /**
  * Reports adapter readiness for the `/adapters` route. Reads from the

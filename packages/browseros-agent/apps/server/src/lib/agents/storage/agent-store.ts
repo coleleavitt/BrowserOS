@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import type { AgentAdapter, AgentDefinition } from './agent-types'
+import type { AgentAdapter, AgentDefinition } from '../agent-types'
 
 export interface CreateAgentInput {
   name: string

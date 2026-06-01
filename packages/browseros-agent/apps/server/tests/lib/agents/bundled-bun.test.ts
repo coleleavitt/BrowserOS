@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { resolveBundledBun } from '../../../src/lib/agents/bundled-bun'
+import { resolveBundledBun } from '../../../src/lib/agents/host-acp/bundled-bun'
 
 describe('bundled Bun helpers', () => {
   const tempDirs: string[] = []

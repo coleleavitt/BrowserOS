@@ -7,7 +7,7 @@ import { describe, expect, it, mock } from 'bun:test'
 import {
   buildResolvedBinaryEnv,
   resolveHostBinary,
-} from '../../../src/lib/agents/host-binary-resolver'
+} from '../../../src/lib/agents/host-acp/binary-resolver'
 
 describe('host binary resolver', () => {
   it('resolves Unix binaries through the user login shell first', async () => {

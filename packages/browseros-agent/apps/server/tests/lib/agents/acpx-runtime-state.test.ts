@@ -11,7 +11,7 @@ import {
   deriveRuntimeSessionKey,
   loadLatestRuntimeState,
   saveLatestRuntimeState,
-} from '../../../src/lib/agents/acpx-runtime-state'
+} from '../../../src/lib/agents/acpx/runtime-state'
 
 describe('acpx runtime state', () => {
   const tempDirs: string[] = []

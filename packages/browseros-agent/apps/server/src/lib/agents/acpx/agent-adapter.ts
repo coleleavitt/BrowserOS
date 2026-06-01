@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import type { AgentDefinition } from './agent-types'
+import type { AgentDefinition } from '../agent-types'
 import {
   prepareClaudeCodeContext,
   prepareCodexContext,
   prepareHermesContext,
-} from './runtime'
+} from '../runtime'
 
 export interface PreparedAcpxAgentContext {
   cwd: string

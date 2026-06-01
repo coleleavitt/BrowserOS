@@ -8,8 +8,8 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { AGENT_HARNESS_LIMITS } from '@browseros/shared/constants/limits'
-import { getBrowserosDir } from '../browseros-dir'
-import { logger } from '../logger'
+import { getBrowserosDir } from '../../browseros-dir'
+import { logger } from '../../logger'
 
 export interface QueuedMessageAttachment {
   mediaType: string

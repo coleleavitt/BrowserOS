@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import {
   FileMessageQueue,
   MessageQueueFullError,
-} from '../../../src/lib/agents/message-queue'
+} from '../../../src/lib/agents/storage/message-queue'
 
 let tmp: string
 let queue: FileMessageQueue

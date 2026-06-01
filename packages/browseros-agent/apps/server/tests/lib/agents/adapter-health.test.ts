@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'bun:test'
-import { AdapterHealthChecker } from '../../../src/lib/agents/adapter-health'
+import { AdapterHealthChecker } from '../../../src/lib/agents/adapters/health'
 import {
   type AgentRuntime,
   AgentRuntimeRegistry,

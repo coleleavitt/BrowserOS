@@ -7,8 +7,8 @@
 import type {
   PrepareAcpxAgentContextInput,
   PreparedAcpxAgentContext,
-} from './acpx-agent-adapter'
-import type { AgentRuntimePaths } from './acpx-runtime-context'
+} from './agent-adapter'
+import type { AgentRuntimePaths } from './runtime-context'
 import {
   BROWSEROS_ACPX_OPERATING_PROMPT_VERSION,
   buildAcpxRuntimePromptPrefix,
@@ -17,11 +17,11 @@ import {
   ensureRuntimeSkills,
   ensureUsableCwd,
   resolveAgentRuntimePaths,
-} from './acpx-runtime-context'
+} from './runtime-context'
 import {
   deriveRuntimeSessionKey,
   saveLatestRuntimeState,
-} from './acpx-runtime-state'
+} from './runtime-state'
 
 export interface BrowserosManagedContext {
   input: PrepareAcpxAgentContextInput

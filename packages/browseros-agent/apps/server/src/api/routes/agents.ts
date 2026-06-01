@@ -13,22 +13,22 @@ import { type Context, Hono } from 'hono'
 import { stream } from 'hono/streaming'
 import { formatUserMessage } from '../../agent/format-message'
 import type { Browser } from '../../browser/browser'
-import { createAcpUIMessageStreamResponse } from '../../lib/agents/acp-ui-message-stream'
-import type {
-  ActiveTurnInfo,
-  TurnFrame,
-} from '../../lib/agents/active-turn-registry'
-import { AdapterHealthChecker } from '../../lib/agents/adapter-health'
+import { createAcpUIMessageStreamResponse } from '../../lib/agents/acp/ui-message-stream'
 import {
   AGENT_ADAPTER_CATALOG,
   isAgentAdapter,
   isSupportedAgentModel,
   isSupportedReasoningEffort,
-} from '../../lib/agents/agent-catalog'
+} from '../../lib/agents/adapters/catalog'
+import { AdapterHealthChecker } from '../../lib/agents/adapters/health'
 import type {
   AgentAdapter,
   AgentDefinition,
 } from '../../lib/agents/agent-types'
+import type {
+  ActiveTurnInfo,
+  TurnFrame,
+} from '../../lib/agents/turns/active-turn-registry'
 import type { AgentHistoryPage, AgentStreamEvent } from '../../lib/agents/types'
 import {
   type AgentDefinitionWithActivity,

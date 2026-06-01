@@ -9,7 +9,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
-import { DbAgentStore } from '../../../src/lib/agents/db-agent-store'
+import { DbAgentStore } from '../../../src/lib/agents/storage/db-agent-store'
 import { closeDb, initializeDb } from '../../../src/lib/db'
 import { agentDefinitions } from '../../../src/lib/db/schema'
 

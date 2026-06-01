@@ -5,8 +5,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { logger } from '../logger'
-import type { AgentStreamEvent } from './types'
+import { logger } from '../../logger'
+import type { AgentStreamEvent } from '../types'
 
 export type TurnStatus = 'running' | 'done' | 'error' | 'cancelled'
 

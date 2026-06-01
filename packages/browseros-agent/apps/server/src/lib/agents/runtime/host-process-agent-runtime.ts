@@ -14,7 +14,7 @@ import { logger } from '../../logger'
 import {
   type ResolvedHostBinary,
   resolveHostBinary,
-} from '../host-binary-resolver'
+} from '../host-acp/binary-resolver'
 import type { AgentRuntime } from './agent-runtime'
 import { ActionNotSupportedError } from './errors'
 import type {

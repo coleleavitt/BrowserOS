@@ -7,11 +7,11 @@ import { describe, expect, it } from 'bun:test'
 import { AGENT_HARNESS_LIMITS } from '@browseros/shared/constants/limits'
 import { Hono } from 'hono'
 import { createAgentRoutes } from '../../../src/api/routes/agents'
+import type { AgentDefinition } from '../../../src/lib/agents/agent-types'
 import {
   type ActiveTurnInfo,
   TurnRegistry,
-} from '../../../src/lib/agents/active-turn-registry'
-import type { AgentDefinition } from '../../../src/lib/agents/agent-types'
+} from '../../../src/lib/agents/turns/active-turn-registry'
 import type { AgentStreamEvent } from '../../../src/lib/agents/types'
 
 describe('createAgentRoutes', () => {

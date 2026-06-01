@@ -18,23 +18,16 @@ import {
   createAgentRegistry,
   createRuntimeStore,
 } from 'acpx/runtime'
-import { getBrowserosDir } from '../browseros-dir'
-import { logger } from '../logger'
-import { prepareAcpxAgentContext } from './acpx-agent-adapter'
-import {
-  resolveAgentRuntimePaths,
-  shellQuote,
-  wrapCommandWithEnv,
-} from './acpx-runtime-context'
-import { loadLatestRuntimeState } from './acpx-runtime-state'
+import { getBrowserosDir } from '../../browseros-dir'
+import { logger } from '../../logger'
 import type {
   AgentDefinition,
   AgentHistoryEntry,
   AgentHistoryToolCall,
-} from './agent-types'
-import { resolveBundledBun } from './bundled-bun'
-import { HOST_ACP_ADAPTER_CONFIG } from './host-acp-adapter-config'
-import { getHermesRuntime } from './runtime'
+} from '../agent-types'
+import { resolveBundledBun } from '../host-acp/bundled-bun'
+import { HOST_ACP_ADAPTER_CONFIG } from '../host-acp/config'
+import { getHermesRuntime } from '../runtime'
 import type {
   AgentHistoryPage,
   AgentPromptInput,
@@ -43,7 +36,14 @@ import type {
   AgentSession,
   AgentStatus,
   AgentStreamEvent,
-} from './types'
+} from '../types'
+import { prepareAcpxAgentContext } from './agent-adapter'
+import {
+  resolveAgentRuntimePaths,
+  shellQuote,
+  wrapCommandWithEnv,
+} from './runtime-context'
+import { loadLatestRuntimeState } from './runtime-state'
 
 type AcpxRuntimeOptions = {
   cwd?: string

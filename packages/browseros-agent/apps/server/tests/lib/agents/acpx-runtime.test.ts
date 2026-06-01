@@ -19,7 +19,7 @@ import { formatUserMessage } from '../../../src/agent/format-message'
 import {
   AcpxRuntime,
   unwrapBrowserosAcpUserMessage,
-} from '../../../src/lib/agents/acpx-runtime'
+} from '../../../src/lib/agents/acpx/runtime'
 import type { AgentDefinition } from '../../../src/lib/agents/agent-types'
 import {
   getAgentRuntimeRegistry,
@@ -1322,7 +1322,7 @@ async function createLatestRuntimeStateForTest(input: {
   runtimeSessionKey: string
 }) {
   const { saveLatestRuntimeState } = await import(
-    '../../../src/lib/agents/acpx-runtime-state'
+    '../../../src/lib/agents/acpx/runtime-state'
   )
   await saveLatestRuntimeState(
     join(

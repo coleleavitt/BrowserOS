@@ -8,7 +8,7 @@ import type { UIMessageChunk } from 'ai'
 import {
   createAcpUIMessageStream,
   mapAcpStopReasonToFinishReason,
-} from '../../../src/lib/agents/acp-ui-message-stream'
+} from '../../../src/lib/agents/acp/ui-message-stream'
 import type { AgentStreamEvent } from '../../../src/lib/agents/types'
 
 describe('createAcpUIMessageStream', () => {

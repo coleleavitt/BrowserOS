@@ -9,15 +9,15 @@ import { logger } from '../../logger'
 import type {
   PrepareAcpxAgentContextInput,
   PreparedAcpxAgentContext,
-} from '../acpx-agent-adapter'
+} from '../acpx/agent-adapter'
 import {
   finishBrowserosManagedContext,
   prepareBrowserosManagedContext,
-} from '../acpx-agent-common'
+} from '../acpx/agent-common'
 import {
   materializeCodexHome,
   resolveAgentRuntimePaths,
-} from '../acpx-runtime-context'
+} from '../acpx/runtime-context'
 import { HostProcessAgentRuntime } from './host-process-agent-runtime'
 import { getAgentRuntimeRegistry } from './registry'
 import type { RuntimeDescriptor } from './types'
