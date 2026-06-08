@@ -137,6 +137,7 @@ jobs:
     uses: ./.github/workflows/release-server.yml
     with:
       version: ${{ needs.resolve_inputs.outputs.server_version }}
+      apply_bump: ${{ needs.resolve_inputs.outputs.bump_mode != 'none' }}
       targets: darwin-arm64
       publish_github_release: false
     secrets: inherit
@@ -231,20 +232,43 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Built version: $version"
 
+      - name: Apply server version bump
+        if: ${{ needs.resolve_inputs.outputs.release_server == 'true' && needs.release_server.outputs.server_version != '' }}
+        env:
+          BROWSEROS_REPO: ${{ steps.build_inputs.outputs.browseros_repo }}
+          SERVER_VERSION: ${{ needs.release_server.outputs.server_version }}
+        run: |
+          set -euo pipefail
+          cd "$BROWSEROS_REPO/packages/browseros"
+          uv run python build/scripts/bump_server_version.py --set "$SERVER_VERSION"
+          echo "Applied server version $SERVER_VERSION to the build working tree"
+
       - name: Commit version bump via pull request
         if: ${{ steps.build_inputs.outputs.commit_version == 'true' }}
         env:
           BROWSEROS_REPO: ${{ steps.build_inputs.outputs.browseros_repo }}
           TARGET_REF: ${{ steps.build_inputs.outputs.target_ref }}
           VERSION: ${{ steps.bump.outputs.version }}
+          RELEASE_SERVER: ${{ needs.resolve_inputs.outputs.release_server }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           cd "$BROWSEROS_REPO"
-          git add packages/browseros/resources/BROWSEROS_VERSION \
+          version_files=(
+            packages/browseros/resources/BROWSEROS_VERSION
             packages/browseros/build/config/BROWSEROS_BUILD_OFFSET
+          )
+          # When the server was released this run, fold its bumped version into the
+          # same PR so the browser and server versions land together.
+          if [ "$RELEASE_SERVER" = "true" ]; then
+            version_files+=(
+              packages/browseros-agent/apps/server/package.json
+              packages/browseros-agent/bun.lock
+            )
+          fi
+          git add "${version_files[@]}"
           if git diff --cached --quiet; then
             echo "No version changes to commit."
             exit 0

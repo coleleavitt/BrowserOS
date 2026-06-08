@@ -4,9 +4,14 @@ on:
   workflow_call:
     inputs:
       version:
-        description: "Release version (e.g. 0.0.97)"
-        required: true
+        description: "Release version (e.g. 0.0.97). Ignored when apply_bump is true."
+        required: false
         type: string
+      apply_bump:
+        description: "Patch-bump the server version in-place before building; the caller commits it."
+        required: false
+        default: false
+        type: boolean
       targets:
         description: "Server build targets to publish to R2"
         required: false
@@ -17,12 +22,21 @@ on:
         required: false
         default: true
         type: boolean
+    outputs:
+      server_version:
+        description: "The server version that was built and uploaded."
+        value: ${{ jobs.release.outputs.server_version }}
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 0.0.97)"
+        description: "Release version (e.g. 0.0.97). Ignored when apply_bump is true."
         required: true
         type: string
+      apply_bump:
+        description: "Patch-bump the server version in-place before building (not committed by this workflow)."
+        required: false
+        default: false
+        type: boolean
       targets:
         description: "Server build targets to publish to R2"
         required: false
@@ -59,6 +73,8 @@ jobs:
       always() &&
       (github.event_name != 'workflow_dispatch' || needs.authorize_manual_dispatch.result == 'success')
     runs-on: ubuntu-latest
+    outputs:
+      server_version: ${{ steps.version.outputs.package_version }}
     permissions:
       contents: write
     timeout-minutes: 120
@@ -93,19 +109,32 @@ jobs:
       - name: Prepare production env file
         run: cp apps/server/.env.production.example apps/server/.env.production
 
-      - name: Validate version
+      - name: Resolve server version
         id: version
         env:
+          APPLY_BUMP: ${{ inputs.apply_bump }}
           REQUESTED_VERSION: ${{ inputs.version }}
+          PUBLISH_GITHUB_RELEASE: ${{ inputs.publish_github_release }}
         run: |
-          PACKAGE_VERSION=$(node -p "require('./apps/server/package.json').version")
-          echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-          if [ "$PACKAGE_VERSION" != "$REQUESTED_VERSION" ]; then
-            echo "Requested version $REQUESTED_VERSION does not match apps/server/package.json ($PACKAGE_VERSION)"
+          set -euo pipefail
+          if [ "$APPLY_BUMP" = "true" ] && [ "$PUBLISH_GITHUB_RELEASE" = "true" ]; then
+            echo "::error::apply_bump cannot be combined with publish_github_release (the bump is committed by the calling workflow, so a tag/release would point at a commit without it)."
             exit 1
           fi
+
+          if [ "$APPLY_BUMP" = "true" ]; then
+            PACKAGE_VERSION="$(python3 "$GITHUB_WORKSPACE/packages/browseros/build/scripts/bump_server_version.py" --agent-root .)"
+            echo "Bumped server version in-place to $PACKAGE_VERSION"
+          else
+            PACKAGE_VERSION=$(node -p "require('./apps/server/package.json').version")
+            if [ -n "$REQUESTED_VERSION" ] && [ "$PACKAGE_VERSION" != "$REQUESTED_VERSION" ]; then
+              echo "::error::Requested version $REQUESTED_VERSION does not match apps/server/package.json ($PACKAGE_VERSION)"
+              exit 1
+            fi
+          fi
+
+          echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Validate release options
         env:
