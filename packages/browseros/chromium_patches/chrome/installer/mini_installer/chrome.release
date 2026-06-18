@@ -10,7 +10,7 @@ index 0f331c3e0f2a3..051d499bcfa37 100644
  #
  # Sub directories living in the version dir
  #
-@@ -63,6 +64,12 @@ PrivacySandboxAttestationsPreloaded\privacy-sandbox-attestations.dat: %(VersionD
+@@ -63,6 +64,15 @@ PrivacySandboxAttestationsPreloaded\privacy-sandbox-attestations.dat: %(VersionD
  MEIPreload\manifest.json: %(VersionDir)s\MEIPreload\
  MEIPreload\preloaded_data.pb: %(VersionDir)s\MEIPreload\
  
@@ -19,6 +19,9 @@ index 0f331c3e0f2a3..051d499bcfa37 100644
 +#
 +BrowserOSServer\default\resources\*.*: %(VersionDir)s\BrowserOSServer\default\resources\
 +BrowserOSServer\default\resources\bin\*.*: %(VersionDir)s\BrowserOSServer\default\resources\bin\
++BrowserOSServer\default\resources\bin\third_party\*.*: %(VersionDir)s\BrowserOSServer\default\resources\bin\third_party\
++BrowserOSServer\default\resources\db\migrations\*.*: %(VersionDir)s\BrowserOSServer\default\resources\db\migrations\
++BrowserOSServer\default\resources\db\migrations\meta\*.*: %(VersionDir)s\BrowserOSServer\default\resources\db\migrations\meta\
 +
  #
  # IWA Key Distribution
