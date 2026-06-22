@@ -56,6 +56,10 @@ export interface StreamTurnInput {
   browserContext?: BrowserContext
   selectedText?: string
   selectedTextSource?: { url: string; title: string }
+  /** Active workspace directory from the chat request. Stamped on each
+   *  WS RPC dispatch so the laptop's /mcp route can scope filesystem
+   *  tools to it for remote-hermes callers. */
+  userWorkingDir?: string
 }
 
 export class RemoteHermesService {
@@ -113,6 +117,12 @@ export class RemoteHermesService {
    * to any other provider's stream.
    */
   streamTurn(input: StreamTurnInput, abortSignal: AbortSignal): Response {
+    // Stamp workingDir on the bridge before opening the turn so any
+    // tools/list / tools/call the worker dispatches during this turn
+    // carries the cwd header. Cleared when the user disconnects their
+    // workspace (input.userWorkingDir undefined) to avoid leaking a
+    // previous turn's scope.
+    this.bridge.setWorkingDir(input.userWorkingDir)
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
         await this.bridge.withTurn(async () => {
@@ -179,6 +189,22 @@ export class RemoteHermesService {
     // Phase 2: optimistic turn.
     const first = await this.client.postTurn(turnPayload, signal)
     if (first.ok) return readTaskId(first, writer)
+
+    // Attach path: a 409 with `turn_in_progress` means the worker
+    // already has a live task for this thread (e.g. the side panel was
+    // refreshed mid-stream and resent the same turn). Don't restart,
+    // don't retry — subscribe to the existing task's SSE stream so the
+    // user picks up the answer in flight.
+    if (first.status === 409) {
+      const activeTaskId = await readActiveTaskId(first.clone())
+      if (activeTaskId) {
+        logger.info('Remote Hermes attaching to in-flight task', {
+          module: MODULE,
+          taskId: activeTaskId,
+        })
+        return activeTaskId
+      }
+    }
 
     // Phase 3: drift recovery. If the worker proxy returned 503/409
     // even though /vm/status said running, the DO record drifted from
@@ -453,6 +479,28 @@ function buildTurnPayload(input: StreamTurnInput): PostTurnInput {
     message,
     modelId: input.modelId,
   }
+}
+
+/** Parses a 409 turn-in-progress body. Returns the existing task id if
+ *  the worker's body matches `{ error: "turn_in_progress", activeTaskId }`
+ *  exactly; otherwise null so the caller can fall through to the
+ *  generic drift-recovery path. */
+async function readActiveTaskId(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as {
+      error?: unknown
+      activeTaskId?: unknown
+    }
+    if (
+      body.error === 'turn_in_progress' &&
+      typeof body.activeTaskId === 'string'
+    ) {
+      return body.activeTaskId
+    }
+  } catch {
+    // not JSON; fall through
+  }
+  return null
 }
 
 async function readTaskId(

@@ -20,6 +20,10 @@ export interface RpcRouterDeps {
   scopeId: string
   /** Provider id forwarded as `X-BrowserOS-Agent-Id` for audit. */
   agentId: string
+  /** Active workspace from the most recent chat turn. Stamped as
+   *  `X-BrowserOS-Working-Dir` so the /mcp route can scope filesystem
+   *  tools to it for remote-hermes callers. */
+  workingDir?: string
 }
 
 interface JsonRpcResponse {
@@ -50,6 +54,9 @@ export async function dispatchRpcRequest(
         accept: 'application/json, text/event-stream',
         'X-BrowserOS-Scope-Id': deps.scopeId,
         'X-BrowserOS-Agent-Id': deps.agentId,
+        ...(deps.workingDir
+          ? { 'X-BrowserOS-Working-Dir': deps.workingDir }
+          : {}),
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
