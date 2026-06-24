@@ -105,17 +105,13 @@ func TestBatchPreflightRejectsInvalidFindNth(t *testing.T) {
 	}
 }
 
-func TestBatchSnapshotFilters(t *testing.T) {
-	got, err := batchSnapshotFilters([]string{"-i", "--compact", "--depth=3"})
-	if err != nil {
-		t.Fatalf("batchSnapshotFilters() error = %v", err)
+func TestBatchSnapshotRejectsArguments(t *testing.T) {
+	err := validateBatchCommand("snapshot -i", batchOptions{page: 7, pageSet: true})
+	if err == nil {
+		t.Fatal("validateBatchCommand(snapshot -i) error = nil, want argument error")
 	}
-	if !got.interactive || !got.compact || got.depth != 3 {
-		t.Fatalf("filters = %#v, want interactive compact depth 3", got)
-	}
-
-	if _, err := batchSnapshotFilters([]string{"--selector", "button"}); err == nil {
-		t.Fatal("batchSnapshotFilters() error = nil, want unsupported flag error")
+	if !strings.Contains(err.Error(), "snapshot does not take arguments") {
+		t.Fatalf("error = %q, want snapshot argument error", err.Error())
 	}
 }
 

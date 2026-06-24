@@ -64,8 +64,10 @@ func TestSnapCommandShape(t *testing.T) {
 	if err := cmd.Args(cmd, []string{"extra"}); err == nil {
 		t.Fatal("snap Args accepted a positional argument")
 	}
-	if cmd.Flags().Lookup("enhanced") != nil {
-		t.Fatal("snap command exposes unsupported enhanced flag")
+	for _, flag := range []string{"enhanced", "interactive", "compact", "depth"} {
+		if cmd.Flags().Lookup(flag) != nil {
+			t.Fatalf("snap command exposes unsupported %s flag", flag)
+		}
 	}
 }
 

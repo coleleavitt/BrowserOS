@@ -178,7 +178,9 @@ func validateBatchCommand(raw string, opts batchOptions) error {
 		}
 		_, err = elementRef(remaining[1])
 	case "snapshot", "snap":
-		_, err = batchSnapshotFilters(remaining[1:])
+		if len(remaining) != 1 {
+			return fmt.Errorf("%s does not take arguments", remaining[0])
+		}
 	case "read", "text", "links":
 		_, err = batchReadOptions(remaining)
 	case "grep":
@@ -291,15 +293,10 @@ func runBatchCommand(c toolCaller, raw string, opts batchOptions) (*mcp.ToolResu
 		}
 		return c.CallTool("act", map[string]any{"page": page, "kind": "select", "ref": ref, "value": strings.Join(remaining[2:], " ")})
 	case "snapshot", "snap":
-		filters, err := batchSnapshotFilters(remaining[1:])
-		if err != nil {
-			return nil, err
+		if len(remaining) != 1 {
+			return nil, fmt.Errorf("%s does not take arguments", remaining[0])
 		}
-		result, err := c.CallTool("snapshot", map[string]any{"page": page})
-		if err != nil {
-			return nil, err
-		}
-		return snapshotOutputResult(result, page, filters, false), nil
+		return c.CallTool("snapshot", map[string]any{"page": page})
 	case "read", "text", "links":
 		return runBatchRead(c, page, remaining)
 	case "grep":
@@ -461,46 +458,6 @@ func batchGrepArgs(tokens []string) (string, string, int, error) {
 		return "", "", 0, fmt.Errorf("grep requires one pattern")
 	}
 	return patterns[0], over, limit, nil
-}
-
-func batchSnapshotFilters(tokens []string) (snapshotFilterOptions, error) {
-	filters := snapshotFilterOptions{}
-	for i := 0; i < len(tokens); i++ {
-		token := tokens[i]
-		switch {
-		case token == "-i" || token == "--interactive":
-			filters.interactive = true
-		case token == "-c" || token == "--compact":
-			filters.compact = true
-		case token == "-d" || token == "--depth":
-			if i+1 >= len(tokens) {
-				return snapshotFilterOptions{}, fmt.Errorf("%s requires a depth", token)
-			}
-			depth, err := strconv.Atoi(tokens[i+1])
-			if err != nil || depth < 0 {
-				return snapshotFilterOptions{}, fmt.Errorf("invalid snapshot depth: %s", tokens[i+1])
-			}
-			filters.depth = depth
-			i++
-		case strings.HasPrefix(token, "-d="):
-			value := strings.TrimPrefix(token, "-d=")
-			depth, err := strconv.Atoi(value)
-			if err != nil || depth < 0 {
-				return snapshotFilterOptions{}, fmt.Errorf("invalid snapshot depth: %s", value)
-			}
-			filters.depth = depth
-		case strings.HasPrefix(token, "--depth="):
-			value := strings.TrimPrefix(token, "--depth=")
-			depth, err := strconv.Atoi(value)
-			if err != nil || depth < 0 {
-				return snapshotFilterOptions{}, fmt.Errorf("invalid snapshot depth: %s", value)
-			}
-			filters.depth = depth
-		default:
-			return snapshotFilterOptions{}, fmt.Errorf("unsupported snapshot flag in batch: %s", token)
-		}
-	}
-	return filters, nil
 }
 
 func runBatchFind(c toolCaller, page int, args []string) (*mcp.ToolResult, error) {

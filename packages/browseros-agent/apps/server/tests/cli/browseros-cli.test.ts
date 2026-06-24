@@ -116,15 +116,16 @@ describe('browseros-cli runtime commands', () => {
 
   it('shows the active page through structured run output', () => {
     const data = runJson(['active'])
-    const page = data.page as Record<string, unknown> | undefined
 
-    expect(page).toBeDefined()
-    expect(typeof page?.pageId).toBe('number')
+    expect(typeof data.page).toBe('number')
   })
 
-  it('snap resolves the active page without an explicit page flag', () => {
-    const data = runJson(['snap'])
+  it('snap captures an explicit page', () => {
+    const active = runJson(['active'])
+    const page = active.page
 
+    expect(typeof page).toBe('number')
+    const data = runJson(['-p', String(page), 'snap'])
     expect(typeof data.page).toBe('number')
     expect(typeof data.snapshot).toBe('string')
     expect((data.snapshot as string).length).toBeGreaterThan(10)

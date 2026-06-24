@@ -43,7 +43,7 @@ browseros-cli health
 
 ```bash
 page=$(browseros-cli open --json https://example.com | jq -r .page)
-browseros-cli -p "$page" snapshot -i
+browseros-cli -p "$page" snapshot
 browseros-cli -p "$page" read --links
 browseros-cli -p "$page" find text "Search" click
 browseros-cli -p "$page" press Enter

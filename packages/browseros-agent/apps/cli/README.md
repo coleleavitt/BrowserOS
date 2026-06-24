@@ -50,7 +50,7 @@ Agents should capture a page id from `open` or `tabs`, then pass it explicitly w
 
 ```bash
 page=$(browseros-cli open --json https://example.com | jq -r .page)
-browseros-cli -p "$page" snapshot -i
+browseros-cli -p "$page" snapshot
 browseros-cli -p "$page" read --links
 browseros-cli -p "$page" find text "Search" click
 browseros-cli -p "$page" press Enter
