@@ -1,26 +1,19 @@
 diff --git a/chrome/browser/browseros/onboarding/resources/index.html b/chrome/browser/browseros/onboarding/resources/index.html
 new file mode 100644
-index 0000000000000..8ac1513559d4e
+index 0000000000000..bb83416d813c0
 --- /dev/null
 +++ b/chrome/browser/browseros/onboarding/resources/index.html
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,13 @@
 +<!doctype html>
 +<html lang="en">
-+<head>
-+<meta charset="utf-8">
-+<meta name="viewport" content="width=device-width, initial-scale=1">
-+<title>BrowserOS Onboarding</title>
-+<script src="app.js" defer></script>
-+</head>
-+<body>
-+<main>
-+  <h1>Welcome to BrowserOS</h1>
-+  <label for="sources">Import from</label>
-+  <select id="sources"></select>
-+  <button id="import">Import</button>
-+  <button id="refresh">Refresh</button>
-+  <button id="continue">Continue</button>
-+  <div id="status">Loading import sources...</div>
-+</main>
-+</body>
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>BrowserOS Onboarding</title>
++    <script type="module" crossorigin src="./app.js"></script>
++    <link rel="stylesheet" crossorigin href="./app.css">
++  </head>
++  <body>
++    <div id="root"></div>
++  </body>
 +</html>
