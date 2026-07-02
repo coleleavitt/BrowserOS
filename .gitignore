@@ -29,6 +29,7 @@ AGENTS.md
 **/resources/binaries/
 
 packages/browseros/build/tools/
+packages/browseros/build/extensions/
 
 # AI SDK DevTools traces
 .devtools/

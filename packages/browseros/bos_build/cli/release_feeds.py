@@ -18,7 +18,7 @@ from ..lib.paths import get_package_root
 from ..core.runner import StepExecutionError, run as run_steps
 from ..lib.utils import log_error
 from ..release.appcast import AppcastModule
-from ..release.extensions import ExtensionsFeedModule, parse_set_options
+from ..release.extensions.manifests import ExtensionsFeedModule, parse_set_options
 from ..release.feeds.publisher import FeedPublisher
 
 feeds_app = typer.Typer(

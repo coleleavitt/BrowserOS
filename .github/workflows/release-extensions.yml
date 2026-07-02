@@ -1,0 +1,134 @@
+name: Release Extensions
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version stamped on every selected extension (e.g., 0.0.118)"
+        required: true
+        type: string
+      extension:
+        description: "Extension to release"
+        required: true
+        type: choice
+        options:
+          - all
+          - agent
+          - controller
+          - bugreporter
+          - browserclaw
+        default: "all"
+      branch:
+        description: "Branch override (checkout ref for in-repo builds, clone branch for external repos)"
+        required: false
+        type: string
+        default: ""
+      channel:
+        description: "Update-feed channel to regenerate"
+        required: true
+        type: choice
+        options:
+          - alpha
+          - prod
+        default: "alpha"
+      publish_manifest:
+        description: "Write regenerated update manifests to R2 (unchecked = dry run)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-extensions
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v8.2.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Verify Chrome is available
+        run: google-chrome --version
+
+      - name: Run extension release
+        working-directory: packages/browseros
+        env:
+          VERSION: ${{ inputs.version }}
+          EXTENSION: ${{ inputs.extension }}
+          BRANCH: ${{ inputs.branch }}
+          CHANNEL: ${{ inputs.channel }}
+          PUBLISH_MANIFEST: ${{ inputs.publish_manifest }}
+
+          # Cloning private external extension repos
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+          # Cloudflare R2 (crx upload + feed publisher)
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+          # Extension signing keys
+          BROWSEROS_AGENT_V2_KEY: ${{ secrets.BROWSEROS_AGENT_V2_KEY }}
+          BROWSEROS_CONTROLLER_KEY: ${{ secrets.BROWSEROS_CONTROLLER_KEY }}
+          BUGREPORTER_KEY: ${{ secrets.BUGREPORTER_KEY }}
+          BROWSERCLAW_KEY: ${{ secrets.BROWSERCLAW_KEY }}
+
+          # Build-time env consumed by the extension bundles
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          VITE_PUBLIC_SENTRY_DSN: ${{ secrets.VITE_PUBLIC_SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          VITE_PUBLIC_POSTHOG_KEY: ${{ secrets.VITE_PUBLIC_POSTHOG_KEY }}
+          VITE_PUBLIC_POSTHOG_HOST: ${{ secrets.VITE_PUBLIC_POSTHOG_HOST }}
+          VITE_PUBLIC_BROWSEROS_API: https://api.browseros.com
+          NODE_ENV: production
+        # Args are quoted at execution time (never baked into a command
+        # string) so a crafted dispatch input cannot break into this shell.
+        run: |
+          set -euo pipefail
+          args=(--version "$VERSION" --channel "$CHANNEL")
+          if [ "$EXTENSION" != "all" ]; then
+            args+=(--name "$EXTENSION")
+          fi
+          if [ -n "$BRANCH" ]; then
+            args+=(--branch "$BRANCH")
+          fi
+          if [ "$PUBLISH_MANIFEST" = "true" ]; then
+            args+=(--publish-manifest)
+          fi
+          {
+            echo "### Release command"
+            echo '```bash'
+            echo "browseros ext release ${args[*]}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          uv run browseros ext release "${args[@]}"
+
+      - name: Upload CRX artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: extension-release-${{ inputs.extension }}-${{ inputs.version }}
+          path: packages/browseros/build/extensions/dist/*.crx
+          if-no-files-found: warn
+          retention-days: 30

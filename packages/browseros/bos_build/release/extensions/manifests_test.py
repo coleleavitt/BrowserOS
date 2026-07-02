@@ -5,10 +5,10 @@ import unittest
 from types import SimpleNamespace
 from typing import cast
 
-from ..core.context import Context
-from ..core.step import ValidationError
-from .extensions import ExtensionsFeedModule, parse_set_options
-from .feeds.render import extract_manifest_versions, render_update_manifest
+from ...core.context import Context
+from ...core.step import ValidationError
+from ..feeds.render import extract_manifest_versions, render_update_manifest
+from .manifests import ExtensionsFeedModule, parse_set_options
 
 AGENT_ID = "bflpfmnmnokmjhmgnolecpppdbdophmk"
 BUGREPORTER_ID = "adlpneommgkgeanpaekgoaolcpncohkf"

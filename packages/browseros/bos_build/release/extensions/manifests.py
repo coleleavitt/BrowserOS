@@ -9,18 +9,18 @@ crx objects must already exist in R2 (HEAD-checked before any write).
 
 from typing import Dict, List
 
-from ..core.context import Context
-from ..core.step import Step, ValidationError
-from ..lib.r2 import BOTO3_AVAILABLE
-from ..lib.utils import log_info
-from .feeds.publisher import FeedPublisher
-from .feeds.render import (
+from ...core.context import Context
+from ...core.step import Step, ValidationError
+from ...lib.r2 import BOTO3_AVAILABLE
+from ...lib.utils import log_info
+from ..feeds.publisher import FeedPublisher
+from ..feeds.render import (
     extract_manifest_versions,
     parse_dotted_version,
     render_extensions_json,
     render_update_manifest,
 )
-from .feeds.spec import (
+from ..feeds.spec import (
     EXTENSIONS,
     bundled_manifest_feed,
     extension_by_name,
