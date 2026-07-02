@@ -34,6 +34,11 @@ def reset_file_to_commit(file_path: str, commit: str, chromium_src: Path) -> boo
     return result.returncode == 0
 
 
+# Marker files annotate a patch path (deleted/binary/renamed upstream) and
+# are never applied; the doctor maps them back onto their base path.
+MARKER_SUFFIXES = (".deleted", ".binary", ".rename")
+
+
 def find_patch_files(patches_dir: Path) -> List[Path]:
     """Find all valid patch files in a directory.
 
@@ -51,12 +56,22 @@ def find_patch_files(patches_dir: Path) -> List[Path]:
             p
             for p in patches_dir.rglob("*")
             if p.is_file()
-            and not p.name.endswith(".deleted")
-            and not p.name.endswith(".binary")
-            and not p.name.endswith(".rename")
+            and not p.name.endswith(MARKER_SUFFIXES)
             and not p.name.startswith(".")
         ]
     )
+
+
+def check_patch_applies(
+    patch_path: Path, chromium_src: Path
+) -> Tuple[bool, Optional[str]]:
+    """Quiet dry-run of one patch (git apply --check); never modifies the tree."""
+    result = run_git_command(
+        ["git", "apply", "--check", "-p1", str(patch_path)], cwd=chromium_src
+    )
+    if result.returncode == 0:
+        return True, None
+    return False, result.stderr
 
 
 def apply_single_patch(
@@ -94,16 +109,13 @@ def apply_single_patch(
                 target_file.unlink()
 
     if dry_run:
-        # Just check if patch would apply
-        result = run_git_command(
-            ["git", "apply", "--check", "-p1", str(patch_path)], cwd=chromium_src
-        )
-        if result.returncode == 0:
+        success, error = check_patch_applies(patch_path, chromium_src)
+        if success:
             log_success(f"  ✓ Would apply: {display_path}")
             return True, None
         else:
             log_error(f"  ✗ Would fail: {display_path}")
-            return False, result.stderr
+            return False, error
     else:
         # Try standard apply first
         result = run_git_command(

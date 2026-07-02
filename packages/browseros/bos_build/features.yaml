@@ -30,23 +30,15 @@ features:
   branding:
     description: "chore: browseros branding and identity"
     files:
-      # Chrome + BrowserOS version
-      - chrome/VERSION
-      - chrome/BROWSEROS_VERSION
+      # Version info
       - base/version_info/BUILD.gn
       - base/version_info/version_info.h
       - base/version_info/version_info_values.h.version
-      # Branding strings and resources
-      - chrome/app/chromium_strings.grd
-      - chrome/app/settings_chromium_strings.grdp
-      - chrome/app/theme/
-      - chrome/enterprise_companion/branding.gni
       # Branding file paths
       - chrome/common/chrome_constants.cc
       - chrome/common/chrome_paths.cc
       - chrome/common/chrome_paths.h
       - chrome/common/chrome_paths_linux.cc
-      - chrome/install_static/chromium_install_modes.cc
       - chrome/install_static/chromium_install_modes.h
       # About page (version + branding display)
       - chrome/browser/resources/settings/about_page/about_page.html
@@ -56,8 +48,6 @@ features:
       - chrome/browser/chrome_browser_application_mac.mm
       - chrome/browser/ui/cocoa/dock_icon.h
       - chrome/browser/ui/cocoa/dock_icon.mm
-      # Updater branding
-      - chrome/updater/branding.gni
       # Custom vector icons
       - components/vector_icons/BUILD.gn
       - components/vector_icons/chat_orange.icon
@@ -96,7 +86,6 @@ features:
       - chrome/browser/mac/chrome_browser_main_extra_parts_mac.mm
       - chrome/browser/mac/sparkle_glue.h
       - chrome/browser/mac/sparkle_glue.mm
-      - chrome/browser/mac/su_updater.h
       - chrome/browser/sparkle_buildflags.gni
       - chrome/browser/ui/BUILD.gn
       - chrome/browser/ui/toolbar/app_menu_icon_controller.cc
@@ -160,10 +149,6 @@ features:
       - chrome/browser/extensions/api/browser_os/browser_os_api_utils.h
       - chrome/browser/extensions/api/browser_os/browser_os_change_detector.cc
       - chrome/browser/extensions/api/browser_os/browser_os_change_detector.h
-      - chrome/browser/extensions/api/browser_os/browser_os_content_processor.cc
-      - chrome/browser/extensions/api/browser_os/browser_os_content_processor.h
-      - chrome/browser/extensions/api/browser_os/browser_os_snapshot_processor.cc
-      - chrome/browser/extensions/api/browser_os/browser_os_snapshot_processor.h
       - chrome/browser/extensions/api/side_panel/side_panel_api.h
       - chrome/browser/extensions/api/side_panel/side_panel_service.cc
       - chrome/browser/extensions/api/side_panel/side_panel_service.h
@@ -194,11 +179,7 @@ features:
     files:
       - chrome/browser/browseros/bundled_extensions/
       - chrome/browser/browseros/extensions/
-      - chrome/browser/extensions/api/developer_private/extension_info_generator_shared.cc
-      - chrome/browser/extensions/browseros_external_loader.cc
-      - chrome/browser/extensions/browseros_external_loader.h
       - chrome/browser/extensions/chrome_extension_registrar_delegate.cc
-      - chrome/browser/extensions/extension_web_ui_override_registrar.cc
       - chrome/browser/extensions/extension_url_overrides_registrar.cc
       - chrome/browser/extensions/external_provider_impl.cc
       - chrome/browser/extensions/updater/extension_updater.cc
@@ -213,10 +194,6 @@ features:
       - chrome/browser/resources/settings/BUILD.gn
       - chrome/browser/resources/settings/browseros_prefs_page/browseros_prefs_page.html
       - chrome/browser/resources/settings/browseros_prefs_page/browseros_prefs_page.ts
-      - chrome/browser/resources/settings/nxtscape_page/models_data.html
-      - chrome/browser/resources/settings/nxtscape_page/models_data.ts
-      - chrome/browser/resources/settings/nxtscape_page/nxtscape_page.html
-      - chrome/browser/resources/settings/nxtscape_page/nxtscape_page.ts
       - chrome/browser/resources/settings/route.ts
       - chrome/browser/resources/settings/router.ts
       - chrome/browser/resources/settings/settings.ts
@@ -243,8 +220,6 @@ features:
       - chrome/common/importer/importer_bridge.h
       - chrome/common/importer/mock_importer_bridge.h
       - chrome/common/importer/profile_import.mojom
-      - chrome/common/importer/profile_import_process_param_traits.cc
-      - chrome/common/importer/profile_import_process_param_traits.h
       - chrome/common/importer/profile_import_process_param_traits_macros.h
       - chrome/test/BUILD.gn
       - chrome/test/data/webui/settings/import_data_dialog_test.ts
@@ -264,7 +239,6 @@ features:
       - chrome/browser/chrome_browser_main.cc
       - chrome/browser/ui/webui/browseros_welcome.h
       - chrome/browser/ui/webui/chrome_web_ui_configs.cc
-      - chrome/browser/ui/webui/nxtscape_first_run.h
       - chrome/common/webui_url_constants.cc
 
   onboarding-import:
@@ -294,11 +268,9 @@ features:
       - chrome/app/generated_resources.grd
       - chrome/browser/ui/ui_features.cc
       - chrome/browser/ui/ui_features.h
-      - chrome/browser/ui/views/accelerator_table.cc
       - chrome/browser/ui/views/side_panel/BUILD.gn
       - chrome/browser/ui/side_panel/side_panel_entry_id.h
       - chrome/browser/ui/side_panel/side_panel_prefs.cc
-      - chrome/browser/ui/views/side_panel/side_panel_util.cc
       - chrome/browser/ui/views/side_panel/side_panel_helper.cc
       - chrome/browser/ui/webui/side_panel/customize_chrome/customize_toolbar/customize_toolbar.mojom
       - chrome/browser/ui/webui/side_panel/customize_chrome/customize_toolbar/customize_toolbar_handler.cc
@@ -311,7 +283,6 @@ features:
     description: "feat: pin browseros native panels"
     files:
       - chrome/browser/sync/prefs/chrome_syncable_prefs_database.cc
-      - chrome/browser/ui/actions/browseros_actions_config.h
       - chrome/browser/ui/toolbar/pinned_toolbar/BUILD.gn
       - chrome/browser/ui/toolbar/pinned_toolbar/pinned_toolbar_actions_model.cc
       - chrome/browser/ui/toolbar/pinned_toolbar/pinned_toolbar_actions_model.h
@@ -337,7 +308,6 @@ features:
   flags:
     description: "feat: browser flags"
     files:
-      - chrome/browser/flag_descriptions.cc
       - chrome/browser/flag_descriptions.h
       - chrome/browser/ui/browser_window/internal/browser_window_features.cc
       - chrome/browser/ui/browser_window/public/browser_window_features.h
@@ -439,10 +409,8 @@ features:
       - chrome/browser/resources/settings/reset_page/reset_profile_dialog.html
       - chrome/browser/themes/BUILD.gn
       - chrome/browser/themes/theme_service.cc
-      - chrome/browser/themes/theme_service_factory.cc
       - chrome/browser/ui/browser_ui_prefs.cc
       - chrome/browser/ui/views/extensions/extension_view_views.cc
-      - chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
       - chrome/browser/ui/views/chrome_layout_provider.cc
       - chrome/browser/ui/views/infobars/infobar_container_view.cc
       - chrome/browser/ui/views/new_tab_footer/
@@ -451,7 +419,6 @@ features:
       - components/bookmarks/browser/bookmark_utils.cc
       - components/content_settings/core/browser/cookie_settings_unittest.cc
       - components/payments/core/payment_prefs.cc
-      - components/performance_manager/user_tuning/prefs.cc
       - components/search/ntp_features.cc
 
   cdp-fixes:

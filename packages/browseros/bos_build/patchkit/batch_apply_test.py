@@ -9,7 +9,11 @@ from types import SimpleNamespace
 from typing import cast
 
 from bos_build.core.context import Context
-from bos_build.patchkit.batch_apply import apply_all_patches, find_patch_files
+from bos_build.patchkit.batch_apply import (
+    apply_all_patches,
+    check_patch_applies,
+    find_patch_files,
+)
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -113,6 +117,52 @@ class BatchApplyTest(unittest.TestCase):
 
         names = [p.name for p in find_patch_files(self.patches_dir)]
         self.assertEqual(names, ["a.patch"])
+
+    def test_dry_run_reports_without_modifying_tree(self):
+        _make_patch(self.repo, self.patches_dir)
+
+        applied, failed = apply_all_patches(self._ctx(), dry_run=True)
+
+        self.assertEqual((applied, failed), (1, []))
+        self.assertNotIn(
+            "line two changed", (self.repo / "chrome" / "a.txt").read_text()
+        )
+
+
+class CheckPatchAppliesTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.repo = _make_repo(self.root)
+        self.patches_dir = self.root / "chromium_patches"
+        self.patches_dir.mkdir()
+
+    def test_clean_patch_passes_and_tree_untouched(self):
+        _make_patch(self.repo, self.patches_dir)
+
+        ok, error = check_patch_applies(
+            self.patches_dir / "chrome" / "a.txt", self.repo
+        )
+
+        self.assertTrue(ok)
+        self.assertIsNone(error)
+        self.assertNotIn(
+            "line two changed", (self.repo / "chrome" / "a.txt").read_text()
+        )
+
+    def test_failing_patch_returns_stderr(self):
+        bad = self.patches_dir / "chrome" / "a.txt"
+        bad.parent.mkdir(parents=True)
+        bad.write_text(
+            "--- a/chrome/a.txt\n+++ b/chrome/a.txt\n"
+            "@@ -1,1 +1,1 @@\n-no such line\n+replacement\n"
+        )
+
+        ok, error = check_patch_applies(bad, self.repo)
+
+        self.assertFalse(ok)
+        self.assertTrue(error)
 
 
 if __name__ == "__main__":

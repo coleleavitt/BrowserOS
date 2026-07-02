@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Dev CLI - Chromium patch extraction
+Dev CLI - Chromium patch extraction and patch-stack health
 
-Extracts commits or files from a Chromium checkout into chromium_patches/.
-Interactive patch application, sync, and conflict handling live in the Go
-tool (tools/patch, `bpatch`) — this CLI deliberately keeps only extract.
+Extracts commits or files from a Chromium checkout into chromium_patches/,
+and reports patch-stack health (doctor). Interactive patch application,
+sync, and conflict handling live in the Go tool (tools/patch, `bpatch`).
 """
 
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -73,12 +74,16 @@ def main(
     quiet: bool = Option(False, "--quiet", "-q", help="Suppress non-essential output"),
 ):
     """
-    Dev CLI - Chromium patch extraction
+    Dev CLI - Chromium patch extraction and patch-stack health
 
     Extract patches from commits:
       browseros dev extract commit HEAD
       browseros dev extract range HEAD~5 HEAD
       browseros dev extract patch chrome/common/foo.h
+
+    Check patch-stack health (read-only):
+      browseros dev doctor
+      browseros dev doctor --against ~/chromium/src --json
 
     Applying and syncing patches is handled by the Go tool: bpatch
     (packages/browseros/tools/patch).
@@ -96,6 +101,117 @@ extract_app = Typer(
 )
 
 app.add_typer(extract_app, name="extract")
+
+
+def _render_doctor_report(report: dict) -> None:
+    repo = report["repo"]
+    scope = f" for feature '{report['feature']}'" if report["feature"] else ""
+    if repo["findings"]:
+        log_info(
+            f"Repo checks{scope}: "
+            f"{repo['errors']} error(s), {repo['warnings']} warning(s)"
+        )
+        for finding in repo["findings"]:
+            if finding["severity"] == "error":
+                log_error(f"  {finding['message']}")
+            else:
+                log_warning(f"  {finding['message']}")
+    elif scope:
+        log_success(f"Repo checks clean{scope}")
+    else:
+        log_success(
+            f"Repo checks clean: {repo['patches']} patches "
+            f"across {repo['features']} features"
+        )
+
+    apply_section = report["apply"]
+    if apply_section is not None:
+        if apply_section["failures"]:
+            log_error(
+                f"Apply check against {apply_section['against']}: "
+                f"{apply_section['failed']}/{apply_section['total']} patches fail "
+                f"({apply_section['features_affected']} feature(s) affected)"
+            )
+            by_feature: dict = {}
+            for failure in apply_section["failures"]:
+                by_feature.setdefault(failure["feature"], []).append(failure["patch"])
+            for feature_name in sorted(by_feature):
+                log_error(f"  {feature_name}:")
+                for patch in by_feature[feature_name]:
+                    log_error(f"    - {patch}")
+        else:
+            log_success(
+                f"Apply check against {apply_section['against']}: "
+                f"all {apply_section['total']} patches apply cleanly"
+            )
+
+    if report["healthy"]:
+        log_success("Patch doctor: healthy")
+    else:
+        log_error("Patch doctor: unhealthy")
+
+
+@app.command(name="doctor")
+def doctor(
+    against: Optional[Path] = Option(
+        None,
+        "--against",
+        help="Chromium source tree to dry-run every patch against "
+        "(git apply --check)",
+        exists=True,
+        file_okay=False,
+    ),
+    feature: Optional[str] = Option(
+        None, "--feature", help="Restrict the report to one feature"
+    ),
+    json_output: bool = Option(
+        False, "--json", help="Emit a machine-readable JSON report on stdout"
+    ),
+):
+    """Read-only patch-stack health report.
+
+    Verifies features.yaml against the patches on disk (every entry resolves,
+    every patch is claimed by a feature, claims don't overlap); with --against,
+    dry-runs every patch and groups failures by feature. Read-only: nothing is
+    written to the chromium tree. Exit 0 healthy / 1 findings / 2 usage or
+    environment errors.
+    """
+    import yaml
+
+    from ..lib.paths import get_package_root
+    from ..patchkit.doctor import (
+        build_report,
+        check_apply,
+        check_repo,
+        load_features,
+    )
+    from ..patchkit.extract.utils import GitError, validate_git_repository
+
+    if against and not validate_git_repository(against):
+        log_error(
+            f"--against {against} is not a git repository "
+            "(expected a chromium src checkout)"
+        )
+        raise typer.Exit(2)
+
+    root = get_package_root()
+    patches_dir = root / "chromium_patches"
+    try:
+        features = load_features(root)
+        findings = check_repo(features, patches_dir, feature)
+        apply_report = (
+            check_apply(features, patches_dir, against, feature) if against else None
+        )
+    except (ValueError, yaml.YAMLError, GitError) as e:
+        log_error(str(e))
+        raise typer.Exit(2)
+
+    report = build_report(root, features, findings, apply_report, feature)
+    if json_output:
+        typer.echo(json.dumps(report, indent=2))
+    else:
+        _render_doctor_report(report)
+    raise typer.Exit(0 if report["healthy"] else 1)
 
 
 @extract_app.command(name="commit")
