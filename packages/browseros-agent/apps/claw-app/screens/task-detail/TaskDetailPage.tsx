@@ -61,6 +61,11 @@ export function TaskDetailPage() {
     )
   }
 
+  const selectedDispatch =
+    lightboxId !== null
+      ? (task.dispatches.find((d) => d.id === lightboxId) ?? null)
+      : null
+
   const items: AutoHideTabsItem[] = groups.map((g) => ({
     id: g.id,
     label: (
@@ -91,6 +96,12 @@ export function TaskDetailPage() {
       />
       <ScreenshotLightbox
         dispatchId={lightboxId}
+        sourceUrl={selectedDispatch?.url ?? null}
+        offsetMs={
+          selectedDispatch
+            ? Math.max(0, selectedDispatch.createdAt - task.startedAt)
+            : null
+        }
         onClose={() => setLightboxId(null)}
       />
     </div>

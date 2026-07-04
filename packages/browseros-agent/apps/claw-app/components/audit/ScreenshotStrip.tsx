@@ -6,6 +6,7 @@ import {
   taskScreenshotUrl,
   useTaskScreenshotBaseUrl,
 } from '@/modules/api/audit.hooks'
+import { formatOffset, hostOf } from './screenshot.helpers'
 
 interface ScreenshotStripProps {
   dispatches: ToolDispatchRow[]
@@ -91,23 +92,4 @@ export function ScreenshotStrip({
       </ScrollArea>
     </section>
   )
-}
-
-function formatOffset(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  const seconds = ms / 1000
-  if (seconds < 60) return `${seconds.toFixed(1)}s`
-  const totalSec = Math.floor(seconds)
-  const mins = Math.floor(totalSec / 60)
-  const rem = totalSec % 60
-  return `${mins}m${rem.toString().padStart(2, '0')}s`
-}
-
-function hostOf(url: string | null): string {
-  if (!url) return ''
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return ''
-  }
 }
