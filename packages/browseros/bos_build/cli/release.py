@@ -80,7 +80,7 @@ def create_release_context(
 def execute_module(ctx: Context, module) -> None:
     """Run a single release step through the shared runner"""
     try:
-        run_steps(ctx, [module], name="release", subscribers=(slack_subscriber,))
+        run_steps(ctx, [module], name="release", subscribers=(slack_subscriber(ctx),))
     except StepExecutionError as e:
         log_error(str(e))
         raise typer.Exit(1)

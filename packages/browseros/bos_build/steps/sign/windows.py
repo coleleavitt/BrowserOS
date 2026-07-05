@@ -26,7 +26,6 @@ from ...lib.utils import (
     "sign_windows",
     phase="sign",
     platforms=("windows",),
-    notify=True,
     env=(
         "CODE_SIGN_TOOL_PATH",
         "ESIGNER_USERNAME",

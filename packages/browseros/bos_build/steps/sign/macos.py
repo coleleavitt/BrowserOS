@@ -155,7 +155,6 @@ def unlock_keychain(env: Optional[EnvConfig] = None) -> None:
     "sign_macos",
     phase="sign",
     platforms=("macos",),
-    notify=True,
     env=(
         "MACOS_CERTIFICATE_NAME",
         "PROD_MACOS_NOTARIZATION_APPLE_ID",

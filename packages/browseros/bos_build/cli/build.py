@@ -3,7 +3,6 @@
 
 import os
 import re
-import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -25,12 +24,7 @@ from ..core.planner import (
     slice_runs_from,
 )
 from ..core.resolver import resolve_config, resolve_pipeline
-from ..lib.notify import (
-    notify_pipeline_end,
-    notify_pipeline_error,
-    set_build_context,
-    slack_subscriber,
-)
+from ..lib.notify import slack_subscriber
 from ..core.runner import StepExecutionError, run as run_pipeline
 from ..core.step import (
     all_steps,
@@ -42,7 +36,6 @@ from ..lib.utils import (
     log_error,
     log_info,
     log_warning,
-    IS_MACOS,
     IS_WINDOWS,
 )
 
@@ -446,51 +439,29 @@ def _execute_runs(
         log_info(f"📍 Pipeline: {' → '.join(runs[0][1])}")
     log_info("=" * 70)
 
-    os_name = "macOS" if IS_MACOS() else "Windows" if IS_WINDOWS() else "Linux"
-
     # Execute once per architecture. Steps see a normal single-arch ctx;
-    # only this loop knows about multi-arch. For multi-arch invocations
-    # one extra whole-run terminal notification fires in the finally, so
-    # an interrupted second arch still reports.
+    # only this loop knows about multi-arch.
     multi_arch = len(runs) > 1
-    overall_status = "failed"
-    overall_error: Optional[str] = None
-    overall_start = time.time()
-    try:
-        for i, (arch_ctx, run_steps) in enumerate(runs, start=1):
-            if multi_arch:
-                log_info("\n" + "#" * 70)
-                log_info(f"# Architecture {i}/{len(runs)}: {arch_ctx.architecture}")
-                log_info(f"# Output: {arch_ctx.out_dir}")
-                log_info("#" * 70)
-
-            set_build_context(os_name, arch_ctx.architecture)
-            run_name = f"build[{arch_ctx.architecture}]" if multi_arch else "build"
-            try:
-                run_pipeline(
-                    arch_ctx,
-                    run_steps,
-                    name=run_name,
-                    subscribers=(slack_subscriber,),
-                    available=AVAILABLE_MODULES,
-                )
-            except StepExecutionError as e:
-                overall_error = str(e)
-                raise typer.Exit(1)
-            except KeyboardInterrupt:
-                overall_status = "interrupted"
-                overall_error = "Interrupted by user"
-                raise typer.Exit(130)
-        overall_status = "success"
-    finally:
+    for i, (arch_ctx, run_steps) in enumerate(runs, start=1):
         if multi_arch:
-            duration = time.time() - overall_start
-            if overall_status == "success":
-                notify_pipeline_end("build (all architectures)", duration)
-            else:
-                notify_pipeline_error(
-                    "build (all architectures)", overall_error or overall_status
-                )
+            log_info("\n" + "#" * 70)
+            log_info(f"# Architecture {i}/{len(runs)}: {arch_ctx.architecture}")
+            log_info(f"# Output: {arch_ctx.out_dir}")
+            log_info("#" * 70)
+
+        try:
+            run_pipeline(
+                arch_ctx,
+                run_steps,
+                name="build",
+                subscribers=(slack_subscriber(arch_ctx),),
+                available=AVAILABLE_MODULES,
+            )
+        except StepExecutionError as e:
+            log_error(str(e))
+            raise typer.Exit(1)
+        except KeyboardInterrupt:
+            raise typer.Exit(130)
 
 
 def _display_only_runs() -> List[Tuple[Context, List[str]]]:

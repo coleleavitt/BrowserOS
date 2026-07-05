@@ -49,7 +49,7 @@ def create_ota_context() -> Context:
 def execute_module(ctx: Context, module) -> None:
     """Run a single OTA step through the shared runner"""
     try:
-        run_steps(ctx, [module], name="ota", subscribers=(slack_subscriber,))
+        run_steps(ctx, [module], name="ota", subscribers=(slack_subscriber(ctx),))
     except StepExecutionError as e:
         log_error(str(e))
         raise typer.Exit(1)

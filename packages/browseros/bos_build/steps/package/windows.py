@@ -15,7 +15,6 @@ from ...lib.utils import (
     join_paths,
     IS_WINDOWS,
 )
-from ...lib.notify import get_notifier, COLOR_GREEN
 from ..compile.standard import autoninja_command
 
 
@@ -48,7 +47,7 @@ class MiniInstallerModule(Step):
             raise RuntimeError("Failed to build mini_installer")
 
 
-@step("package_windows", phase="package", platforms=("windows",), notify=True)
+@step("package_windows", phase="package", platforms=("windows",))
 class WindowsPackageModule(Step):
     produces = ["installer", "installer_zip"]
     requires = []
@@ -74,17 +73,6 @@ class WindowsPackageModule(Step):
         context.artifact_registry.add("installer_zip", zip_path)
 
         log_success("Windows packages created successfully")
-
-        notifier = get_notifier()
-        notifier.notify(
-            "📦 Package Created",
-            "Windows packages created successfully",
-            {
-                "Artifacts": f"{installer_path.name}, {zip_path.name}",
-                "Version": context.semantic_version,
-            },
-            color=COLOR_GREEN,
-        )
 
     def _create_installer(self, ctx: Context) -> Path:
         build_output_dir = join_paths(ctx.chromium_src, ctx.out_dir)

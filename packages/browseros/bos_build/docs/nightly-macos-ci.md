@@ -189,9 +189,14 @@ The workflow uploads matching DMGs as `BrowserOS_v<version>_arm64` with
 
 ## Slack
 
-The build already posts pipeline start, phase start/done, success, failure,
-package-created, and upload-complete messages when `SLACK_WEBHOOK_URL` is
-present in `.env`.
+When `SLACK_WEBHOOK_URL` is present in `.env`, the build posts one terse
+phase narrative for each run. The first message announces the product,
+version, OS/arch, and planned phases. Each later phase transition posts one
+humanized duration message, such as `✅ Build done (83m 26s) → Sign`.
+The terminal message is always sent synchronously: `🏁` success includes R2
+artifact links when upload ran, `❌` failure names the failing step and error,
+and `🛑` interrupt names the interrupted step. With no webhook configured,
+Slack notification is a silent no-op.
 
 The workflow only adds a CI-level failure ping for failures that happen before
 or around the build invocation, such as missing runner variables or sync errors.

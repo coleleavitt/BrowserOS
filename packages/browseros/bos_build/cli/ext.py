@@ -46,7 +46,7 @@ def _create_context(version: str) -> Context:
 
 def _execute(ctx: Context, steps: List) -> None:
     try:
-        run_steps(ctx, steps, name="ext-release", subscribers=(slack_subscriber,))
+        run_steps(ctx, steps, name="ext-release", subscribers=(slack_subscriber(ctx),))
     except StepExecutionError as e:
         log_error(str(e))
         raise typer.Exit(1)

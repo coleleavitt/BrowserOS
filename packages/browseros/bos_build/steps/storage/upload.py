@@ -16,7 +16,6 @@ from ...lib.utils import (
     IS_WINDOWS,
     IS_MACOS,
 )
-from ...lib.notify import get_notifier, COLOR_GREEN
 
 from ...lib.r2 import (
     BOTO3_AVAILABLE,
@@ -36,7 +35,7 @@ def _get_platform() -> str:
         return "linux"
 
 
-@step("upload", phase="upload", notify=True)
+@step("upload", phase="upload")
 class UploadModule(Step):
     """Upload build artifacts to Cloudflare R2"""
 
@@ -301,19 +300,10 @@ def upload_release_artifacts(
         log_info(f"  Sparkle version: {release_data.get('sparkle_version', 'N/A')}")
     log_info(f"  Artifacts: {list(release_data['artifacts'].keys())}")
 
-    notifier = get_notifier()
-    artifact_urls = [
-        f"{a['filename']}: {a['url']}" for a in release_data["artifacts"].values()
+    release_links = [
+        (artifact["filename"], artifact["url"])
+        for artifact in release_data["artifacts"].values()
     ]
-    notifier.notify(
-        "Upload Complete",
-        f"Uploaded {len(artifacts)} artifact(s) to R2",
-        {
-            "Version": release_data["version"],
-            "Platform": platform,
-            "Artifacts": "\n".join(artifact_urls),
-        },
-        color=COLOR_GREEN,
-    )
+    ctx.artifact_registry.add("release_links", release_links)
 
     return True, release_data

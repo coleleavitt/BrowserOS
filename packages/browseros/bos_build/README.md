@@ -48,7 +48,7 @@ plan(preset, platform, arch, switches) -> [step names]
 - **Switches** are flat toggles: `product`, `arch`, `clean`,
   `provision` (none/full/shallow), `download`, `sign`, `upload`.
   Resolution: CLI > profile file > preset default.
-- **Steps** self-register with `@step(name, phase, platforms, notify,
+- **Steps** self-register with `@step(name, phase, platforms,
   env, optional)`. Required env vars derive from the selected steps and
   are preflighted before anything runs; within-phase order is the
   import order in `steps/__init__.py`.

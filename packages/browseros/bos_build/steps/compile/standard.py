@@ -102,7 +102,7 @@ def autoninja_command(
     return cmd + list(targets)
 
 
-@step("compile", phase="build", notify=True)
+@step("compile", phase="build")
 class CompileModule(Step):
     produces = ["built_app"]
     requires = []

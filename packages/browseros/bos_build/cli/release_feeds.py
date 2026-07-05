@@ -47,7 +47,7 @@ def _create_context(version: str = "", product: str = "browseros") -> Context:
 
 def _execute(ctx: Context, module) -> None:
     try:
-        run_steps(ctx, [module], name="release", subscribers=(slack_subscriber,))
+        run_steps(ctx, [module], name="release", subscribers=(slack_subscriber(ctx),))
     except StepExecutionError as e:
         log_error(str(e))
         raise typer.Exit(1)
