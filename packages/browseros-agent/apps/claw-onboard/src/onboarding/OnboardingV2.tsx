@@ -39,14 +39,10 @@ const initialOnboardingState: BrowserOSOnboardingState = {
 }
 
 /** Maps Chromium importer status into the local three-step onboarding screen state. */
-export function importPhaseFor(
-  status: BrowserOSImportStatus,
-  hasPreparedForImport: boolean,
-): ImportPhase {
+export function importPhaseFor(status: BrowserOSImportStatus): ImportPhase {
   if (status === 'importing') return 'importing'
   if (status === 'failed') return 'failed'
   if (status === 'succeeded') return 'imported'
-  if (!hasPreparedForImport) return 'pre-quit'
   return 'picker'
 }
 
@@ -67,12 +63,8 @@ export function OnboardingV2() {
   const [bridge] = useState(() => createBrowserOSOnboardingBridge())
   const [onboardingState, setOnboardingState] =
     useState<BrowserOSOnboardingState>(initialOnboardingState)
-  const [hasPreparedForImport, setHasPreparedForImport] = useState(false)
   const didNotifyPageReady = useRef(false)
-  const importPhase = importPhaseFor(
-    onboardingState.status,
-    hasPreparedForImport,
-  )
+  const importPhase = importPhaseFor(onboardingState.status)
 
   useEffect(() => {
     const cleanup = bridge.registerReceiver(setOnboardingState)
@@ -106,11 +98,6 @@ export function OnboardingV2() {
     })
   }, [form, onboardingState.sources])
 
-  function prepareForImport() {
-    setHasPreparedForImport(true)
-    bridge.refreshSources()
-  }
-
   function startImport() {
     const source = selectedSourceById(
       onboardingState.sources,
@@ -141,7 +128,6 @@ export function OnboardingV2() {
             phase={importPhase}
             state={onboardingState}
             form={form}
-            onQuitChrome={prepareForImport}
             onImport={startImport}
             onRefresh={() => bridge.refreshSources()}
             onContinue={() => setStep(2)}

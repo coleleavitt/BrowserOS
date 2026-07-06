@@ -48,7 +48,6 @@ function Harness({
         phase={phase}
         state={state}
         form={form}
-        onQuitChrome={() => undefined}
         onImport={() => undefined}
         onRefresh={() => undefined}
         onContinue={() => undefined}
@@ -79,12 +78,6 @@ function checklistRowFor(html: string, label: string): string {
 }
 
 describe('ImportStep', () => {
-  it('renders the Chrome-is-open notice in pre-quit phase', () => {
-    const html = render('pre-quit')
-    expect(html).toContain('Chrome is open')
-    expect(html).toContain('Quit Chrome for me')
-  })
-
   it('renders the picker, the Keychain notice, and an Import button in picker phase', () => {
     const html = render('picker')
     expect(html).toContain('Choose a browser profile to import')
@@ -100,6 +93,8 @@ describe('ImportStep', () => {
     expect(html).toContain('7 of 7 selected')
     expect(html).toContain('macOS will ask permission')
     expect(html).toContain('Import 7 items from Work')
+    expect(html).not.toContain('Chrome is open')
+    expect(html).not.toContain('Quit Chrome for me')
     expect(html).not.toContain('disabled=""')
   })
 

@@ -92,8 +92,8 @@ describe('OnboardingV2 shell', () => {
   })
 
   it('does not treat failed or completed Chromium states as import success', () => {
-    expect(importPhaseFor('failed', true)).toBe('failed')
-    expect(importPhaseFor('completed', true)).toBe('picker')
-    expect(importPhaseFor('completed', false)).toBe('pre-quit')
+    expect(importPhaseFor('failed')).toBe('failed')
+    expect(importPhaseFor('completed')).toBe('picker')
+    expect(importPhaseFor('idle')).toBe('picker')
   })
 })

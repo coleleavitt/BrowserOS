@@ -6,7 +6,6 @@ import type {
   BrowserOSImportItem,
   BrowserOSOnboardingState,
 } from '../browseros-onboarding-api'
-import { ChromeQuitNotice } from '../components/ChromeQuitNotice'
 import { DisplayHeading, Em, StepCopy } from '../components/DisplayHeading'
 import { ImportedSummaryCard } from '../components/ImportedSummaryCard'
 import { ImportItemChecklist } from '../components/ImportItemChecklist'
@@ -30,7 +29,6 @@ interface ImportStepProps {
   phase: ImportPhase
   state: BrowserOSOnboardingState
   form: UseFormReturn<OnboardingFormValues>
-  onQuitChrome: () => void
   onImport: () => void
   onRefresh: () => void
   onContinue: () => void
@@ -55,7 +53,6 @@ export function ImportStep({
   phase,
   state,
   form,
-  onQuitChrome,
   onImport,
   onRefresh,
   onContinue,
@@ -118,8 +115,6 @@ export function ImportStep({
         BrowserClaw copies your saved Chrome sessions so the agent never has to
         log in again. Sessions stay in a local vault on this Mac.
       </StepCopy>
-
-      {phase === 'pre-quit' && <ChromeQuitNotice onQuitChrome={onQuitChrome} />}
 
       {phase === 'picker' && (
         <>
