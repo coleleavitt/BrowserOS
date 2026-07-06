@@ -178,6 +178,7 @@ packages/*/dist
 
 # Build output directory
 /build/
+target/
 
 # Compiled binaries
 browseros-server

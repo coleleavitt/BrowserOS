@@ -1,0 +1,453 @@
+pub mod geometry;
+pub mod keyboard;
+pub mod mouse;
+
+use crate::{CoreError, PageId, ProtocolSession, Ref, observer::Observer, pages::PageManager};
+use geometry::{
+    call_on_element, focus_element, get_element_center, get_input_value, js_click, scroll_into_view,
+};
+use mouse::{MouseButton, dispatch_click, dispatch_drag, dispatch_hover, dispatch_scroll};
+use serde_json::{Value, json};
+use std::sync::Arc;
+
+pub use keyboard::{
+    KeyInfo, clear_field, get_key_info, modifier_bitmask, normalize_key, press_combo, type_text,
+};
+pub use mouse::MouseButton as PublicMouseButton;
+
+#[derive(Debug, Clone, Default)]
+pub struct ClickOptions {
+    pub button: Option<MouseButton>,
+    pub click_count: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DragResult {
+    pub from: Point,
+    pub to: Point,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+pub struct Input {
+    observer: Arc<Observer>,
+    pages: Arc<PageManager>,
+    page_id: PageId,
+}
+
+impl Input {
+    #[must_use]
+    pub fn new(observer: Arc<Observer>, pages: Arc<PageManager>, page_id: PageId) -> Self {
+        Self {
+            observer,
+            pages,
+            page_id,
+        }
+    }
+
+    pub async fn click(
+        &self,
+        ref_id: &Ref,
+        opts: ClickOptions,
+    ) -> Result<Option<Point>, CoreError> {
+        let resolved = self.observer.resolve_ref(ref_id).await?;
+        self.click_node(&resolved.session, resolved.backend_node_id, opts)
+            .await
+    }
+
+    pub async fn click_backend_node(
+        &self,
+        backend_node_id: i64,
+        opts: ClickOptions,
+    ) -> Result<Option<Point>, CoreError> {
+        self.with_page_session_retry(|session| {
+            let opts = opts.clone();
+            async move { self.click_node(&session, backend_node_id, opts).await }
+        })
+        .await
+    }
+
+    pub async fn click_at(&self, x: f64, y: f64, opts: ClickOptions) -> Result<(), CoreError> {
+        self.with_page_session_retry(|session| {
+            let button = opts.button.unwrap_or(MouseButton::Left);
+            let click_count = opts.click_count.unwrap_or(1);
+            async move { dispatch_click(&session, x, y, button, click_count, 0).await }
+        })
+        .await
+    }
+
+    pub async fn hover_at(&self, x: f64, y: f64) -> Result<(), CoreError> {
+        self.with_page_session_retry(|session| async move { dispatch_hover(&session, x, y).await })
+            .await
+    }
+
+    pub async fn type_at(&self, x: f64, y: f64, text: &str, clear: bool) -> Result<(), CoreError> {
+        self.with_page_session_retry(|session| {
+            let text = text.to_string();
+            async move {
+                dispatch_click(&session, x, y, MouseButton::Left, 1, 0).await?;
+                if clear {
+                    clear_field(&session).await?;
+                }
+                type_text(&session, &text).await
+            }
+        })
+        .await
+    }
+
+    pub async fn drag_at(&self, from: Point, to: Point) -> Result<(), CoreError> {
+        self.with_page_session_retry(
+            |session| async move { dispatch_drag(&session, from, to).await },
+        )
+        .await
+    }
+
+    async fn click_node(
+        &self,
+        session: &ProtocolSession,
+        backend_node_id: i64,
+        opts: ClickOptions,
+    ) -> Result<Option<Point>, CoreError> {
+        scroll_into_view(session, backend_node_id).await;
+        match get_element_center(session, backend_node_id).await {
+            Ok(point) => {
+                dispatch_click(
+                    session,
+                    point.x,
+                    point.y,
+                    opts.button.unwrap_or(MouseButton::Left),
+                    opts.click_count.unwrap_or(1),
+                    0,
+                )
+                .await?;
+                Ok(Some(point))
+            }
+            Err(_err) => {
+                js_click(session, backend_node_id).await?;
+                Ok(None)
+            }
+        }
+    }
+
+    pub async fn hover(&self, ref_id: &Ref) -> Result<Point, CoreError> {
+        let resolved = self.observer.resolve_ref(ref_id).await?;
+        self.hover_node(&resolved.session, resolved.backend_node_id)
+            .await
+    }
+
+    pub async fn hover_backend_node(&self, backend_node_id: i64) -> Result<Point, CoreError> {
+        self.with_page_session_retry(|session| async move {
+            self.hover_node(&session, backend_node_id).await
+        })
+        .await
+    }
+
+    async fn hover_node(
+        &self,
+        session: &ProtocolSession,
+        backend_node_id: i64,
+    ) -> Result<Point, CoreError> {
+        scroll_into_view(session, backend_node_id).await;
+        let point = get_element_center(session, backend_node_id).await?;
+        dispatch_hover(session, point.x, point.y).await?;
+        Ok(point)
+    }
+
+    pub async fn fill(
+        &self,
+        ref_id: &Ref,
+        value: &str,
+        clear: bool,
+    ) -> Result<Option<Point>, CoreError> {
+        let resolved = self.observer.resolve_ref(ref_id).await?;
+        self.fill_node(&resolved.session, resolved.backend_node_id, value, clear)
+            .await
+    }
+
+    async fn fill_node(
+        &self,
+        session: &ProtocolSession,
+        backend_node_id: i64,
+        value: &str,
+        clear: bool,
+    ) -> Result<Option<Point>, CoreError> {
+        scroll_into_view(session, backend_node_id).await;
+        let mut coords = None;
+        if let Ok(point) = get_element_center(session, backend_node_id).await {
+            dispatch_click(session, point.x, point.y, MouseButton::Left, 1, 0).await?;
+            coords = Some(point);
+        } else {
+            focus_element(session, backend_node_id).await?;
+        }
+
+        let key_session = self.page_session().await?;
+        if clear {
+            clear_field(&key_session).await?;
+            if coords.is_some()
+                && !get_input_value(session, backend_node_id).await.is_empty()
+                && let Some(point) = coords
+            {
+                dispatch_click(session, point.x, point.y, MouseButton::Left, 3, 0).await?;
+            }
+        }
+        type_text(&key_session, value).await?;
+        Ok(coords)
+    }
+
+    pub async fn focus(&self, ref_id: &Ref) -> Result<(), CoreError> {
+        let resolved = self.observer.resolve_ref(ref_id).await?;
+        scroll_into_view(&resolved.session, resolved.backend_node_id).await;
+        focus_element(&resolved.session, resolved.backend_node_id).await
+    }
+
+    pub async fn type_text(&self, text: &str) -> Result<(), CoreError> {
+        self.with_page_session_retry(|session| {
+            let text = text.to_string();
+            async move { type_text(&session, &text).await }
+        })
+        .await
+    }
+
+    pub async fn press(&self, key: &str) -> Result<(), CoreError> {
+        self.with_page_session_retry(|session| {
+            let key = key.to_string();
+            async move { press_combo(&session, &key).await }
+        })
+        .await
+    }
+
+    pub async fn select_option(
+        &self,
+        ref_id: &Ref,
+        value: &str,
+    ) -> Result<Option<String>, CoreError> {
+        let resolved = self.observer.resolve_ref(ref_id).await?;
+        self.select_backend_node_with_session(&resolved.session, resolved.backend_node_id, value)
+            .await
+    }
+
+    pub async fn select_backend_node(
+        &self,
+        backend_node_id: i64,
+        value: &str,
+    ) -> Result<Option<String>, CoreError> {
+        self.with_page_session_retry(|session| {
+            let value = value.to_string();
+            async move {
+                self.select_backend_node_with_session(&session, backend_node_id, &value)
+                    .await
+            }
+        })
+        .await
+    }
+
+    async fn select_backend_node_with_session(
+        &self,
+        session: &ProtocolSession,
+        backend_node_id: i64,
+        value: &str,
+    ) -> Result<Option<String>, CoreError> {
+        let selected = call_on_element(
+            session,
+            backend_node_id,
+            SELECT_OPTION_FN,
+            Some(vec![json!(value)]),
+        )
+        .await?;
+        Ok(selected.as_str().map(ToString::to_string))
+    }
+
+    pub async fn check(&self, ref_id: &Ref) -> Result<bool, CoreError> {
+        let resolved = self.observer.resolve_ref(ref_id).await?;
+        let checked = call_on_element(
+            &resolved.session,
+            resolved.backend_node_id,
+            "function(){return this.checked}",
+            None,
+        )
+        .await?;
+        if checked.as_bool() != Some(true) {
+            let _ = self
+                .click_node(
+                    &resolved.session,
+                    resolved.backend_node_id,
+                    ClickOptions::default(),
+                )
+                .await?;
+        }
+        Ok(true)
+    }
+
+    pub async fn uncheck(&self, ref_id: &Ref) -> Result<bool, CoreError> {
+        let resolved = self.observer.resolve_ref(ref_id).await?;
+        let checked = call_on_element(
+            &resolved.session,
+            resolved.backend_node_id,
+            "function(){return this.checked}",
+            None,
+        )
+        .await?;
+        if checked.as_bool() == Some(true) {
+            let _ = self
+                .click_node(
+                    &resolved.session,
+                    resolved.backend_node_id,
+                    ClickOptions::default(),
+                )
+                .await?;
+        }
+        Ok(false)
+    }
+
+    pub async fn upload_file_by_ref(
+        &self,
+        ref_id: &Ref,
+        files: Vec<String>,
+    ) -> Result<(), CoreError> {
+        let resolved = self.observer.resolve_ref(ref_id).await?;
+        let _: Value = resolved
+            .session
+            .send(
+                "DOM.setFileInputFiles",
+                json!({ "files": files, "backendNodeId": resolved.backend_node_id }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn handle_dialog(
+        &self,
+        accept: bool,
+        prompt_text: Option<&str>,
+    ) -> Result<(), CoreError> {
+        self.with_page_session_retry(|session| async move {
+            let mut params = serde_json::Map::new();
+            params.insert("accept".to_string(), Value::Bool(accept));
+            if let Some(prompt_text) = prompt_text {
+                params.insert(
+                    "promptText".to_string(),
+                    Value::String(prompt_text.to_string()),
+                );
+            }
+            let _: Value = session
+                .send("Page.handleJavaScriptDialog", Value::Object(params))
+                .await?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn drag(&self, source_ref: &Ref, target_ref: &Ref) -> Result<DragResult, CoreError> {
+        let source = self.observer.resolve_ref(source_ref).await?;
+        let target = self.observer.resolve_ref(target_ref).await?;
+        if !source.session.same_session(&target.session) {
+            return Err(CoreError::CrossFrameDrag);
+        }
+        scroll_into_view(&source.session, source.backend_node_id).await;
+        scroll_into_view(&target.session, target.backend_node_id).await;
+        let from = get_element_center(&source.session, source.backend_node_id).await?;
+        let to = get_element_center(&target.session, target.backend_node_id).await?;
+        dispatch_drag(&source.session, from, to).await?;
+        Ok(DragResult { from, to })
+    }
+
+    pub async fn scroll(
+        &self,
+        direction: ScrollDirection,
+        amount: i64,
+        ref_id: Option<&Ref>,
+    ) -> Result<(), CoreError> {
+        let pixels = amount * 120;
+        let (delta_x, delta_y) = match direction {
+            ScrollDirection::Left => (-pixels, 0),
+            ScrollDirection::Right => (pixels, 0),
+            ScrollDirection::Up => (0, -pixels),
+            ScrollDirection::Down => (0, pixels),
+        };
+        if delta_x == 0 && delta_y == 0 {
+            return Ok(());
+        }
+        if let Some(ref_id) = ref_id {
+            let resolved = self.observer.resolve_ref(ref_id).await?;
+            let point = get_element_center(&resolved.session, resolved.backend_node_id).await?;
+            dispatch_scroll(
+                &resolved.session,
+                point.x,
+                point.y,
+                delta_x as f64,
+                delta_y as f64,
+            )
+            .await?;
+            return Ok(());
+        }
+        let session = self.page_session().await?;
+        let metrics: LayoutMetrics = session.send("Page.getLayoutMetrics", json!({})).await?;
+        dispatch_scroll(
+            &session,
+            metrics.layout_viewport.client_width as f64 / 2.0,
+            metrics.layout_viewport.client_height as f64 / 2.0,
+            delta_x as f64,
+            delta_y as f64,
+        )
+        .await
+    }
+
+    async fn page_session(&self) -> Result<ProtocolSession, CoreError> {
+        Ok(self.pages.get_session(self.page_id.clone()).await?.session)
+    }
+
+    async fn with_page_session_retry<F, Fut, T>(&self, action: F) -> Result<T, CoreError>
+    where
+        F: Fn(ProtocolSession) -> Fut,
+        Fut: std::future::Future<Output = Result<T, CoreError>>,
+    {
+        let mut attempted = false;
+        loop {
+            let result = action(self.page_session().await?).await;
+            match result {
+                Ok(value) => return Ok(value),
+                Err(err) if !attempted && err.is_retryable_session_loss() => {
+                    attempted = true;
+                    let _ = self.pages.refresh(self.page_id.clone()).await;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LayoutMetrics {
+    layout_viewport: LayoutViewport,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LayoutViewport {
+    client_width: i64,
+    client_height: i64,
+}
+
+const SELECT_OPTION_FN: &str = "function(val){\
+  for(var i=0;i<this.options.length;i++){\
+    if(this.options[i].value===val||this.options[i].textContent.trim()===val){\
+      this.selectedIndex=i;\
+      this.dispatchEvent(new Event('change',{bubbles:true}));\
+      return this.options[i].textContent.trim();\
+    }\
+  }\
+  return null;\
+}";
