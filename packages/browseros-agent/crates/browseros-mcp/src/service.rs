@@ -42,7 +42,7 @@ pub const BROWSER_MCP_INSTRUCTIONS: &str = r#"BrowserOS MCP - you are driving th
 Shared environment. The user (and possibly other agents) are using this browser right now:
 - Open your own tab with tabs action="new" (use its returned page id everywhere); touch an existing tab only when the user points you at it.
 - Don't steal focus, close tabs you didn't open, or rearrange the user's windows.
-- Group your tabs with tab_groups so your work is visibly yours; close your tabs when done.
+- Close your tabs when done.
 
 Core loop: snapshot -> act -> verify.
 - snapshot renders the page as an accessibility tree; interactive elements carry [ref=eN] handles.

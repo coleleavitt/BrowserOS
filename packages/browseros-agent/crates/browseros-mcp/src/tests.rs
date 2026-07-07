@@ -141,6 +141,12 @@ fn catalog_metadata_matches_claw_hook_contract() {
 }
 
 #[test]
+fn instructions_do_not_request_manual_tab_grouping() {
+    assert!(!BROWSER_MCP_INSTRUCTIONS.contains("tab_groups"));
+    assert!(BROWSER_MCP_INSTRUCTIONS.contains("Close your tabs when done."));
+}
+
+#[test]
 fn act_schema_stays_flat_at_top_level() {
     let act = catalog()
         .into_iter()
