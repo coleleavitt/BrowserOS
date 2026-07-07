@@ -448,3 +448,13 @@ features:
       - chrome/browser/extensions/manifest_v2_experiment_manager.cc
       - chrome/browser/ui/webui/extensions/extensions_ui.cc
       - extensions/common/extension.cc
+
+  win-visible-installer-ui:
+    description: "feat: win visible installer ui"
+    files:
+      - chrome/installer/setup/BUILD.gn
+      - chrome/installer/setup/browseros_install_ui.cc
+      - chrome/installer/setup/browseros_install_ui.h
+      - chrome/installer/setup/setup_main.cc
+      - chrome/installer/util/util_constants.cc
+      - chrome/installer/util/util_constants.h
