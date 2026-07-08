@@ -116,7 +116,7 @@ fn sim1_extract_hack_commit_renders_routing_net_fold_and_next_step() -> Result<(
     assert!(out.stdout.contains("→ no patch"));
     assert!(
         out.stdout
-            .contains("store: chromium_patches 3 patches updated, features.yaml unchanged")
+            .contains("store: chromium_patches 3 patches updated, .features.yaml unchanged")
     );
     assert!(
         out.stdout
@@ -639,6 +639,75 @@ fn wrong_checkout_refuses_status_diff_apply_with_guidance() -> Result<()> {
 }
 
 #[test]
+fn legacy_store_loads_and_first_write_migrates_metadata_names() -> Result<()> {
+    let checkout = FixtureRepo::new()?;
+    let base = write_extract_base(&checkout)?;
+    let store = FixtureRepo::new()?;
+    let store_dir = seed_legacy_extract_store(&store, &base)?;
+    store.commit("seed legacy store")?;
+
+    let list = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&["feature", "list", "--json"]),
+    )?;
+    assert_eq!(list.code, 0, "{}", list.stderr);
+    let json = parse_json(&list.stdout)?;
+    assert_eq!(json["features"][0]["name"], "bootstrap");
+    assert!(store_dir.join("store.yaml").exists());
+    assert!(store_dir.join("features.yaml").exists());
+    assert!(!store_dir.join(".store.yaml").exists());
+    assert!(!store_dir.join(".features.yaml").exists());
+
+    let added = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&[
+            "feature",
+            "add",
+            "wallet",
+            "--path",
+            "chrome/browser/browseros/wallet/",
+            "--json",
+        ]),
+    )?;
+    assert_eq!(added.code, 0, "{}", added.stderr);
+    let json = parse_json(&added.stdout)?;
+    assert_eq!(json["result"], "feature-added");
+
+    assert!(store_dir.join(".store.yaml").exists());
+    assert!(store_dir.join(".features.yaml").exists());
+    assert!(!store_dir.join("store.yaml").exists());
+    assert!(!store_dir.join("features.yaml").exists());
+    Ok(())
+}
+
+#[test]
+fn store_with_both_metadata_spellings_refuses_to_load() -> Result<()> {
+    let checkout = FixtureRepo::new()?;
+    let base = write_extract_base(&checkout)?;
+    let store = FixtureRepo::new()?;
+    let store_dir = seed_extract_store(&store, &base)?;
+    fs::write(
+        store_dir.join("store.yaml"),
+        fs::read(store_dir.join(".store.yaml"))?,
+    )?;
+    store.commit("seed ambiguous store")?;
+
+    let out = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&["feature", "list", "--json"]),
+    )?;
+    assert_eq!(out.code, 1);
+    let json = parse_json(&out.stdout)?;
+    let reason = json["reason"].as_str().expect("reason");
+    assert!(reason.contains("both .store.yaml and legacy store.yaml"));
+    assert!(reason.contains("remove one spelling"));
+    Ok(())
+}
+
+#[test]
 fn init_writes_fresh_config_and_status_uses_it() -> Result<()> {
     let scenario = applied_rev1_scenario()?;
     let home = tempfile::tempdir()?;
@@ -736,7 +805,40 @@ main = "/tmp/chromium"
 }
 
 #[test]
-fn init_rejects_directory_without_store_yaml() -> Result<()> {
+fn extract_refuses_root_metadata_patch_paths() -> Result<()> {
+    let checkout = FixtureRepo::new()?;
+    let base = write_extract_base(&checkout)?;
+    let store = FixtureRepo::new()?;
+    let store_dir = seed_extract_store(&store, &base)?;
+    store.commit("seed store")?;
+
+    checkout.write_file(".store.yaml", "not bpatch metadata\n")?;
+    let rev = checkout.commit("bad metadata-like file")?;
+    let out = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        vec![
+            "extract".into(),
+            rev,
+            "--feature".into(),
+            "metadata".into(),
+            "--json".into(),
+        ],
+    )?;
+
+    assert_eq!(out.code, 1);
+    let json = parse_json(&out.stdout)?;
+    assert!(
+        json["reason"]
+            .as_str()
+            .expect("reason")
+            .contains("store path .store.yaml is reserved")
+    );
+    Ok(())
+}
+
+#[test]
+fn init_rejects_directory_without_store_metadata() -> Result<()> {
     let home = tempfile::tempdir()?;
     let not_store = tempfile::tempdir()?;
 
@@ -748,8 +850,42 @@ fn init_rejects_directory_without_store_yaml() -> Result<()> {
     )?;
     assert_eq!(init.code, 1);
     assert!(init.stdout.is_empty());
-    assert!(init.stderr.contains("missing store.yaml"));
+    assert!(init.stderr.contains("missing .store.yaml"));
     assert!(!home.path().join(".config/bpatch/config.toml").exists());
+    Ok(())
+}
+
+#[test]
+fn fixture_store_visible_files_are_patch_files_and_nested_dot_patches_load() -> Result<()> {
+    let checkout = FixtureRepo::new()?;
+    let base = write_extract_base(&checkout)?;
+    let store = FixtureRepo::new()?;
+    let store_dir = seed_extract_store(&store, &base)?;
+
+    checkout.write_file("chrome/browser/ui/llmchat/panel.cc", "panel changed\n")?;
+    checkout.write_file(
+        "chrome/browser/browseros/bundled_extensions/.gitignore",
+        "bundle-cache\n",
+    )?;
+    checkout.git().run(&["add", "-A"])?;
+    commit_store_from_index(
+        &store,
+        &checkout,
+        &base,
+        &[
+            "chrome/browser/ui/llmchat/panel.cc",
+            "chrome/browser/browseros/bundled_extensions/.gitignore",
+        ],
+        "store patches",
+    )?;
+
+    assert_visible_files_are_patches(&store_dir)?;
+    let model = Store::load(&store_dir)?;
+    assert!(
+        model
+            .patches()
+            .contains_key("chrome/browser/browseros/bundled_extensions/.gitignore")
+    );
     Ok(())
 }
 
@@ -918,11 +1054,11 @@ fn write_checkout_rev2(repo: &FixtureRepo, include_build: bool) -> Result<()> {
 
 fn seed_apply_store(store: &FixtureRepo, base: &str) -> Result<PathBuf> {
     store.write_file(
-        "chromium_patches/store.yaml",
+        "chromium_patches/.store.yaml",
         format!("base_commit: {base}\nbase_version: \"148.0.7204.1\"\n"),
     )?;
     store.write_file(
-        "chromium_patches/features.yaml",
+        "chromium_patches/.features.yaml",
         r#"version: "1.0"
 features:
   llmchat:
@@ -955,11 +1091,11 @@ fn write_extract_base(repo: &FixtureRepo) -> Result<String> {
 
 fn seed_extract_store(store: &FixtureRepo, base: &str) -> Result<PathBuf> {
     store.write_file(
-        "chromium_patches/store.yaml",
+        "chromium_patches/.store.yaml",
         format!("base_commit: {base}\nbase_version: \"148.0.7204.1\"\n"),
     )?;
     store.write_file(
-        "chromium_patches/features.yaml",
+        "chromium_patches/.features.yaml",
         r#"version: "1.0"
 features:
   llmchat:
@@ -974,6 +1110,48 @@ features:
 "#,
     )?;
     Ok(store.path().join("chromium_patches"))
+}
+
+fn seed_legacy_extract_store(store: &FixtureRepo, base: &str) -> Result<PathBuf> {
+    let store_dir = seed_extract_store(store, base)?;
+    fs::rename(store_dir.join(".store.yaml"), store_dir.join("store.yaml"))?;
+    fs::rename(
+        store_dir.join(".features.yaml"),
+        store_dir.join("features.yaml"),
+    )?;
+    Ok(store_dir)
+}
+
+fn assert_visible_files_are_patches(root: &Path) -> Result<()> {
+    fn visit(root: &Path, dir: &Path) -> Result<()> {
+        for entry in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                visit(root, &path)?;
+                continue;
+            }
+            if !file_type.is_file()
+                || path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with('.'))
+            {
+                continue;
+            }
+            let contents =
+                fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+            assert!(
+                contents.starts_with(b"diff --git "),
+                "{} is visible but not a patch",
+                path.strip_prefix(root)?.display()
+            );
+        }
+        Ok(())
+    }
+
+    visit(root, root)
 }
 
 struct ConflictScenario {
@@ -1031,11 +1209,11 @@ fn write_old_base(repo: &FixtureRepo) -> Result<String> {
 
 fn seed_conflict_store(store: &FixtureRepo, base: &str) -> Result<PathBuf> {
     store.write_file(
-        "chromium_patches/store.yaml",
+        "chromium_patches/.store.yaml",
         format!("base_commit: {base}\nbase_version: \"148.0.7204.1\"\n"),
     )?;
     store.write_file(
-        "chromium_patches/features.yaml",
+        "chromium_patches/.features.yaml",
         r#"version: "1.0"
 features:
   bootstrap:

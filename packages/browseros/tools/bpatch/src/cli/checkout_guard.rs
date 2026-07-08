@@ -3,16 +3,11 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
-use serde::Deserialize;
 
 use crate::git::GitAdapter;
+use crate::store::Store;
 
 const PATCH_SAMPLE_LIMIT: usize = 8;
-
-#[derive(Debug, Deserialize)]
-struct StoreBase {
-    base_commit: String,
-}
 
 /// Refuses status/diff/apply before a non-Chromium repo can masquerade as state.
 pub fn ensure_matches_store(checkout: &Path, store_dir: &Path) -> Result<()> {
@@ -74,11 +69,7 @@ fn store_inside_checkout(checkout: &Path, store_dir: &Path) -> Result<bool> {
 }
 
 fn store_base_commit(store_dir: &Path) -> Result<String> {
-    let path = store_dir.join("store.yaml");
-    let bytes = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    let base: StoreBase =
-        serde_yaml::from_slice(&bytes).with_context(|| format!("parsing {}", path.display()))?;
-    Ok(base.base_commit)
+    Ok(Store::load(store_dir)?.metadata().base_commit.clone())
 }
 
 fn commit_exists(checkout: &Path, rev: &str) -> Result<bool> {

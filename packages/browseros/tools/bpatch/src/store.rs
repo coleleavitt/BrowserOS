@@ -7,8 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::process::Git;
 
-const FEATURES_FILE: &str = "features.yaml";
-const STORE_FILE: &str = "store.yaml";
+pub const FEATURES_FILE: &str = ".features.yaml";
+pub const STORE_FILE: &str = ".store.yaml";
+
+const LEGACY_FEATURES_FILE: &str = "features.yaml";
+const LEGACY_STORE_FILE: &str = "store.yaml";
 
 /// In-memory view of a chromium_patches store directory.
 #[derive(Clone, Debug)]
@@ -27,14 +30,16 @@ impl Store {
     /// Loads patch files, feature ownership, and base metadata from a store dir.
     pub fn load(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref().to_path_buf();
-        let store_yaml = fs::read(dir.join(STORE_FILE))
-            .with_context(|| format!("reading {}", dir.join(STORE_FILE).display()))?;
+        let store_path = metadata_file_path(&dir, STORE_FILE, LEGACY_STORE_FILE)?;
+        let features_path = metadata_file_path(&dir, FEATURES_FILE, LEGACY_FEATURES_FILE)?;
+        let store_yaml =
+            fs::read(&store_path).with_context(|| format!("reading {}", store_path.display()))?;
         let metadata: StoreMetadata = serde_yaml::from_slice(&store_yaml)
-            .with_context(|| format!("parsing {}", dir.join(STORE_FILE).display()))?;
-        let features_yaml = fs::read(dir.join(FEATURES_FILE))
-            .with_context(|| format!("reading {}", dir.join(FEATURES_FILE).display()))?;
+            .with_context(|| format!("parsing {}", store_path.display()))?;
+        let features_yaml = fs::read(&features_path)
+            .with_context(|| format!("reading {}", features_path.display()))?;
         let features = parse_features_yaml(&features_yaml)
-            .with_context(|| format!("parsing {}", dir.join(FEATURES_FILE).display()))?;
+            .with_context(|| format!("parsing {}", features_path.display()))?;
         let loaded = load_patch_files(&dir)?;
 
         Ok(Self {
@@ -58,6 +63,7 @@ impl Store {
     pub fn save_to(&self, dir: impl AsRef<Path>) -> Result<()> {
         let dir = dir.as_ref();
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        migrate_legacy_metadata_files(dir)?;
         remove_stale_patch_files(dir, self.patches.keys())?;
 
         for patch in self.patches.values() {
@@ -77,18 +83,18 @@ impl Store {
         Ok(())
     }
 
-    /// Returns the base pin loaded from store.yaml.
+    /// Returns the base pin loaded from .store.yaml.
     pub fn metadata(&self) -> &StoreMetadata {
         &self.metadata
     }
 
-    /// Replaces the base pin that will be written to store.yaml.
+    /// Replaces the base pin that will be written to .store.yaml.
     pub fn set_metadata(&mut self, metadata: StoreMetadata) {
         self.metadata = metadata;
         self.metadata_dirty = true;
     }
 
-    /// Returns the parsed features.yaml model.
+    /// Returns the parsed .features.yaml model.
     pub fn features(&self) -> &Features {
         &self.features
     }
@@ -116,7 +122,7 @@ impl Store {
         Ok(())
     }
 
-    /// Appends a new feature block while leaving existing features.yaml bytes intact.
+    /// Appends a new feature block while leaving existing .features.yaml bytes intact.
     pub fn add_feature(&mut self, name: &str, description: &str, paths: Vec<String>) -> Result<()> {
         validate_feature_name(name)?;
         if self.features.features.contains_key(name) {
@@ -221,14 +227,22 @@ impl Store {
     }
 }
 
-/// store.yaml schema: base Chromium commit plus human Chromium version string.
+/// Validates that a store directory has one readable spelling for each metadata file.
+pub fn validate_metadata_layout(dir: impl AsRef<Path>) -> Result<()> {
+    let dir = dir.as_ref();
+    metadata_file_path(dir, STORE_FILE, LEGACY_STORE_FILE)?;
+    metadata_file_path(dir, FEATURES_FILE, LEGACY_FEATURES_FILE)?;
+    Ok(())
+}
+
+/// .store.yaml schema: base Chromium commit plus human Chromium version string.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StoreMetadata {
     pub base_commit: String,
     pub base_version: String,
 }
 
-/// Parsed features.yaml content keyed by feature name.
+/// Parsed .features.yaml content keyed by feature name.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Features {
     pub version: Option<String>,
@@ -250,7 +264,7 @@ pub struct PatchFile {
     pub contents: Vec<u8>,
 }
 
-/// Result of routing one changed chromium path through features.yaml.
+/// Result of routing one changed chromium path through .features.yaml.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FeatureMatch {
     Matched {
@@ -389,10 +403,10 @@ fn collect_patch_files(root: &Path, dir: &Path, loaded: &mut LoadedPatchFiles) -
             continue;
         }
 
-        let rel = relative_store_path(root, &path)?;
-        if rel == FEATURES_FILE || rel == STORE_FILE {
+        if is_root_metadata_file(root, &path) {
             continue;
         }
+        let rel = relative_store_path(root, &path)?;
         let contents = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
         if !contents.starts_with(b"diff --git ") {
             loaded.ignored_files.insert(rel);
@@ -465,6 +479,11 @@ fn relative_store_path(root: &Path, path: &Path) -> Result<String> {
 }
 
 fn validate_store_path(path: &str) -> Result<()> {
+    if path == STORE_FILE || path == FEATURES_FILE {
+        bail!(
+            "store path {path} is reserved for bpatch metadata; choose a Chromium-relative patch path"
+        );
+    }
     if path.is_empty()
         || path.starts_with('/')
         || path.contains('\\')
@@ -475,6 +494,60 @@ fn validate_store_path(path: &str) -> Result<()> {
         bail!("invalid store path: {path}");
     }
     Ok(())
+}
+
+fn metadata_file_path(dir: &Path, current: &str, legacy: &str) -> Result<PathBuf> {
+    let current_path = dir.join(current);
+    let legacy_path = dir.join(legacy);
+    match (current_path.exists(), legacy_path.exists()) {
+        (true, true) => bail!(
+            "patch store {} has both {current} and legacy {legacy}; remove one spelling before running bpatch",
+            dir.display()
+        ),
+        (true, false) => Ok(current_path),
+        (false, true) => Ok(legacy_path),
+        (false, false) => bail!(
+            "patch store {} is missing {current} (legacy {legacy} was not found either)",
+            dir.display()
+        ),
+    }
+}
+
+fn migrate_legacy_metadata_files(dir: &Path) -> Result<()> {
+    migrate_legacy_metadata_file(dir, STORE_FILE, LEGACY_STORE_FILE)?;
+    migrate_legacy_metadata_file(dir, FEATURES_FILE, LEGACY_FEATURES_FILE)
+}
+
+fn migrate_legacy_metadata_file(dir: &Path, current: &str, legacy: &str) -> Result<()> {
+    let current_path = dir.join(current);
+    let legacy_path = dir.join(legacy);
+    match (current_path.exists(), legacy_path.exists()) {
+        (true, true) => bail!(
+            "patch store {} has both {current} and legacy {legacy}; remove one spelling before running bpatch",
+            dir.display()
+        ),
+        (false, true) => fs::rename(&legacy_path, &current_path).with_context(|| {
+            format!(
+                "migrating {} to {}",
+                legacy_path.display(),
+                current_path.display()
+            )
+        }),
+        _ => Ok(()),
+    }
+}
+
+fn is_root_metadata_file(root: &Path, path: &Path) -> bool {
+    path.parent() == Some(root)
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| {
+                matches!(
+                    name,
+                    FEATURES_FILE | STORE_FILE | LEGACY_FEATURES_FILE | LEGACY_STORE_FILE
+                )
+            })
 }
 
 fn validate_feature_path(path: &str) -> Result<()> {

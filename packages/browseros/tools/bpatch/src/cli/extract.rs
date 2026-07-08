@@ -7,6 +7,7 @@ use crate::engine::extract::{
 };
 use crate::engine::progress::ProgressEvent;
 use crate::process::Git;
+use crate::store::FEATURES_FILE;
 
 /// Extract subcommand mode.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -201,23 +202,25 @@ fn render_extract_human(report: &ExtractReport) -> String {
     }
     for feature in &report.created_features {
         out.push_str(&format!(
-            "created feature \"{}\" (path: {}) in features.yaml\n",
-            feature.name, feature.path
+            "created feature \"{}\" (path: {}) in {}\n",
+            feature.name, feature.path, FEATURES_FILE
         ));
     }
 
     let patches = report.patches.unwrap_or(0);
     if report.created_features.is_empty() {
         out.push_str(&format!(
-            "store: chromium_patches {} {} updated, features.yaml unchanged\n",
+            "store: chromium_patches {} {} updated, {} unchanged\n",
             patches,
-            patches_label(patches)
+            patches_label(patches),
+            FEATURES_FILE
         ));
     } else {
         out.push_str(&format!(
-            "store: {} {} written · features.yaml +{} {}\n",
+            "store: {} {} written · {} +{} {}\n",
             patches,
             patches_label(patches),
+            FEATURES_FILE,
             report.created_features.len(),
             features_label(report.created_features.len())
         ));

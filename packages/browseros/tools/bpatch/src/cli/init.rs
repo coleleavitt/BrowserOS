@@ -7,6 +7,7 @@ use serde::Serialize;
 use toml_edit::{DocumentMut, value};
 
 use super::InitArgs;
+use crate::store;
 
 /// Result of writing the user's bpatch config.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -55,9 +56,9 @@ fn resolve_store_dir(store_dir: Option<&Path>) -> Result<PathBuf> {
         Some(store_dir) => store_dir.to_path_buf(),
         None => {
             let cwd = env::current_dir().context("reading current directory")?;
-            if !cwd.join("store.yaml").exists() {
+            if let Err(err) = store::validate_metadata_layout(&cwd) {
                 bail!(
-                    "init requires <STORE_DIR>; run from a patch store containing store.yaml or pass `bpatch init <dir>`"
+                    "init requires <STORE_DIR>; run from a patch store containing .store.yaml/.features.yaml or pass `bpatch init <dir>`: {err:#}"
                 );
             }
             cwd
@@ -66,12 +67,8 @@ fn resolve_store_dir(store_dir: Option<&Path>) -> Result<PathBuf> {
     let store = candidate
         .canonicalize()
         .with_context(|| format!("canonicalizing {}", candidate.display()))?;
-    if !store.join("store.yaml").exists() {
-        bail!(
-            "patch store {} is missing store.yaml; pass a chromium_patches directory containing store.yaml",
-            store.display()
-        );
-    }
+    store::validate_metadata_layout(&store)
+        .with_context(|| format!("invalid patch store {}", store.display()))?;
     Ok(store)
 }
 

@@ -7,7 +7,9 @@ use crate::engine::lock::CheckoutLock;
 use crate::engine::progress::ProgressEvent;
 use crate::engine::state::{self, StateContext};
 use crate::process::Git;
-use crate::store::{FeatureMatch, FeatureSuggestion, PatchFile, Store, StoreMetadata};
+use crate::store::{
+    FEATURES_FILE, FeatureMatch, FeatureSuggestion, PatchFile, STORE_FILE, Store, StoreMetadata,
+};
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
@@ -54,7 +56,7 @@ impl ExtractSpec {
     }
 }
 
-/// Policy the CLI uses to resolve files that do not match features.yaml.
+/// Policy the CLI uses to resolve files that do not match .features.yaml.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FeatureDecisionPolicy {
     RequireExplicit,
@@ -275,7 +277,7 @@ pub fn extract(
     let mutation = apply_patch_mutation(&mut store, &non_empty, &net_folds)?;
     let mut store_paths_changed = mutation.store_paths_changed();
     if !created_features.is_empty() {
-        store_paths_changed.push("features.yaml".to_string());
+        store_paths_changed.push(FEATURES_FILE.to_string());
     }
 
     progress(ProgressEvent::Start {
@@ -355,7 +357,7 @@ pub fn repin(
     let mut store_paths_changed = mutation.store_paths_changed();
     if old_metadata.base_commit != state.base.sha || old_metadata.base_version != state.base.display
     {
-        store_paths_changed.push("store.yaml".to_string());
+        store_paths_changed.push(STORE_FILE.to_string());
     }
 
     progress(ProgressEvent::Start {
@@ -461,7 +463,7 @@ fn ensure_tree_exists(git: &Git, rev: &str) -> Result<()> {
     git.run_str(&["rev-parse", &format!("{rev}^{{tree}}")])
         .with_context(|| {
             format!(
-                "store base commit {rev} does not exist in checkout; fetch or sync the Chromium base pinned by store.yaml"
+                "store base commit {rev} does not exist in checkout; fetch or sync the Chromium base pinned by .store.yaml"
             )
         })?;
     Ok(())

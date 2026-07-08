@@ -45,7 +45,7 @@ pub enum ApplyReport {
     BaseMismatch {
         /// Base commit from the checkout state.
         checkout_base: String,
-        /// Base commit pinned in store.yaml.
+        /// Base commit pinned in .store.yaml.
         store_base: String,
         /// Process exit code for this result.
         exit: i32,
@@ -76,9 +76,9 @@ pub enum ApplyReport {
     /// Store base pin moved while this checkout is still on old bpatch history.
     #[serde(rename = "base-pin-moved")]
     BasePinMoved {
-        /// Base commit pinned in store.yaml.
+        /// Base commit pinned in .store.yaml.
         store_base: String,
-        /// Short base commit pinned in store.yaml.
+        /// Short base commit pinned in .store.yaml.
         store_base_short: String,
         /// Human store base display string.
         store_base_display: String,

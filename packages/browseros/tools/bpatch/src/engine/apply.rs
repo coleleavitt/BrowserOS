@@ -72,7 +72,7 @@ pub struct AppliedApply {
 pub struct BaseMismatch {
     /// Base commit recorded by the checkout's current applied state.
     pub checkout_base: String,
-    /// Base commit pinned in store.yaml.
+    /// Base commit pinned in .store.yaml.
     pub store_base: String,
 }
 

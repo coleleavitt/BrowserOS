@@ -68,7 +68,7 @@ Global flags:
 | `bpatch apply` | `--pull`, global flags | `0`, `2`, `3`, `1` | Optionally fast-forward the store repo, then converge the checkout or report conflicts/drift. |
 | `bpatch extract [SPEC]` | `--feature <FEATURE>`, `--commit`, `--repin`, global flags | `0`, `3`, `1` | Extract `<rev>` or `<rev1>..<rev2>` into the store, or repin existing store patches to the checkout base. |
 | `bpatch feature list` | global flags | `0`, `1` | List features, owned patch counts, and last applied sequence numbers. |
-| `bpatch feature add <NAME> --path <PATH>` | `--description <DESCRIPTION>`, global flags | `0`, `1` | Append a new feature block to `features.yaml`. |
+| `bpatch feature add <NAME> --path <PATH>` | `--description <DESCRIPTION>`, global flags | `0`, `1` | Append a new feature block to `.features.yaml`. |
 | `bpatch abort` | global flags | `0`, `1` | Remove a pending conflict session. |
 | `bpatch continue` | `--materialize`, global flags | `0`, `2`, `1` | Materialize conflict markers or finish a conflict session after resolution. |
 
@@ -145,10 +145,12 @@ Before `continue --materialize`, `bpatch abort` only deletes the session file; t
 | Path | Meaning |
 | --- | --- |
 | `<chromium/path>` | One git-style unified diff per Chromium-relative path, mirrored under the Chromium tree layout. |
-| `features.yaml` | Canonical feature registry inside the store. Mutations append blocks so existing comments and bytes are preserved. |
-| `store.yaml` | Base pin metadata: `base_commit` and `base_version`. |
+| `.features.yaml` | Hidden canonical feature registry inside the store. Mutations append blocks so existing comments and bytes are preserved. |
+| `.store.yaml` | Hidden base pin metadata: `base_commit` and `base_version`. |
 
-`features.yaml` entries can own exact files or directory prefixes ending in `/`. `extract` matches exact paths first, then prefixes, then reports or creates the nearest feature decision.
+Use `ls -a` to see the store metadata files. They are dot-prefixed so generic patch-tree walkers see only Chromium patch files when they scan visible entries.
+
+`.features.yaml` entries can own exact files or directory prefixes ending in `/`. `extract` matches exact paths first, then prefixes, then reports or creates the nearest feature decision.
 
 ## Cutover Checklist Vs `tools/patch`
 

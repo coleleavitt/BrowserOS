@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::engine::lock::CheckoutLock;
 use crate::engine::state::{StateContext, parse_apply_trailers};
 use crate::git::GitAdapter;
-use crate::store::{FeatureMatch, Store};
+use crate::store::{FEATURES_FILE, FeatureMatch, Store};
 
 /// Serializable feature command report.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -20,13 +20,13 @@ pub enum FeatureReport {
         /// Process exit code for this result.
         exit: i32,
     },
-    /// A feature block was appended to features.yaml.
+    /// A feature block was appended to .features.yaml.
     FeatureAdded {
         /// Feature name.
         name: String,
         /// Owned path prefix.
         path: String,
-        /// Description written to features.yaml.
+        /// Description written to .features.yaml.
         description: String,
         /// Process exit code for this result.
         exit: i32,
@@ -74,7 +74,7 @@ pub fn list(ctx: &StateContext) -> Result<FeatureReport> {
     Ok(FeatureReport::Features { features, exit: 0 })
 }
 
-/// Appends a feature block to features.yaml.
+/// Appends a feature block to .features.yaml.
 pub fn add(
     store_dir: impl Into<PathBuf>,
     name: &str,
@@ -121,7 +121,7 @@ pub fn render_human(report: &FeatureReport) -> String {
             out
         }
         FeatureReport::FeatureAdded { name, path, .. } => {
-            format!("created feature \"{name}\" (path: {path}) in features.yaml\n")
+            format!("created feature \"{name}\" (path: {path}) in {FEATURES_FILE}\n")
         }
     }
 }

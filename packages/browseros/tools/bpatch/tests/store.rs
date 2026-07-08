@@ -47,7 +47,7 @@ fn write_minimal_store(dir: &Path) -> Result<()> {
         b"diff --git a/base/version_info/BUILD.gn b/base/version_info/BUILD.gn\nindex 1111111..2222222 100644\n--- a/base/version_info/BUILD.gn\n+++ b/base/version_info/BUILD.gn\n@@ -1 +1 @@\n-old\n+new\n",
     )?;
     write_file(
-        dir.join("features.yaml"),
+        dir.join(".features.yaml"),
         br#"version: "1.0"
 features:
   # preserved comment
@@ -67,7 +67,7 @@ features:
 "#,
     )?;
     write_file(
-        dir.join("store.yaml"),
+        dir.join(".store.yaml"),
         br#"base_commit: 6b3fa66a923a9442c8ab0bc71b4b41ff24528d3b
 base_version: "148.0.7778.97"
 "#,
@@ -90,7 +90,7 @@ fn count_store_patch_files(root: &Path) -> Result<usize> {
             }
 
             let rel = path.strip_prefix(root)?;
-            if rel == Path::new("features.yaml") || rel == Path::new("store.yaml") {
+            if rel == Path::new(".features.yaml") || rel == Path::new(".store.yaml") {
                 continue;
             }
             if fs::read(&path)
@@ -137,12 +137,12 @@ fn round_trip_store_preserves_patch_and_metadata_bytes() -> Result<()> {
         fs::read(dst.path().join("base/version_info/BUILD.gn"))?
     );
     assert_eq!(
-        fs::read(src.path().join("store.yaml"))?,
-        fs::read(dst.path().join("store.yaml"))?
+        fs::read(src.path().join(".store.yaml"))?,
+        fs::read(dst.path().join(".store.yaml"))?
     );
     assert_eq!(
-        fs::read(src.path().join("features.yaml"))?,
-        fs::read(dst.path().join("features.yaml"))?
+        fs::read(src.path().join(".features.yaml"))?,
+        fs::read(dst.path().join(".features.yaml"))?
     );
     Ok(())
 }
@@ -151,7 +151,7 @@ fn round_trip_store_preserves_patch_and_metadata_bytes() -> Result<()> {
 fn adding_feature_appends_without_rewriting_existing_comments() -> Result<()> {
     let dir = tempfile::tempdir()?;
     write_minimal_store(dir.path())?;
-    let original = fs::read(dir.path().join("features.yaml"))?;
+    let original = fs::read(dir.path().join(".features.yaml"))?;
 
     let mut store = Store::load(dir.path())?;
     store.add_feature(
@@ -161,7 +161,7 @@ fn adding_feature_appends_without_rewriting_existing_comments() -> Result<()> {
     )?;
     store.save()?;
 
-    let updated = fs::read(dir.path().join("features.yaml"))?;
+    let updated = fs::read(dir.path().join(".features.yaml"))?;
     assert!(updated.starts_with(&original));
 
     let reparsed = Store::load(dir.path())?;
@@ -325,7 +325,7 @@ fn feature_matching_exact_prefix_and_nearest_suggestions() -> Result<()> {
 #[test]
 fn real_store_loads_when_seeded() -> Result<()> {
     let store_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../chromium_patches");
-    if !store_dir.join("store.yaml").exists() || !store_dir.join("features.yaml").exists() {
+    if !store_dir.join(".store.yaml").exists() || !store_dir.join(".features.yaml").exists() {
         return Ok(());
     }
 

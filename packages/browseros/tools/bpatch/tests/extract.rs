@@ -19,7 +19,7 @@ fn extract_range_writes_net_diffs_and_removes_folded_store_patch() -> Result<()>
     let base = write_base_checkout(&checkout)?;
     let store = FixtureRepo::new()?;
     let store_dir = seed_store(&store, &base)?;
-    let original_features = fs::read(store_dir.join("features.yaml"))?;
+    let original_features = fs::read(store_dir.join(".features.yaml"))?;
     store.write_file(
         "chromium_patches/chrome/browser/ui/llmchat/tmp_probe.cc",
         b"diff --git a/chrome/browser/ui/llmchat/tmp_probe.cc b/chrome/browser/ui/llmchat/tmp_probe.cc\nnew file mode 100644\nindex abc..def 100644\n--- /dev/null\n+++ b/chrome/browser/ui/llmchat/tmp_probe.cc\n@@ -0,0 +1 @@\n+stale\n",
@@ -71,7 +71,7 @@ fn extract_range_writes_net_diffs_and_removes_folded_store_patch() -> Result<()>
             .exists()
     );
     assert_eq!(
-        fs::read(store_dir.join("features.yaml"))?,
+        fs::read(store_dir.join(".features.yaml"))?,
         original_features
     );
     let human = extract::render_human(&report);
@@ -80,7 +80,7 @@ fn extract_range_writes_net_diffs_and_removes_folded_store_patch() -> Result<()>
     assert!(human.contains("→ feature: llmchat (nearest path)"));
     assert!(human.contains("net-fold: chrome/browser/ui/llmchat/tmp_probe.cc"));
     assert!(human.contains("→ no patch"));
-    assert!(human.contains("features.yaml unchanged"));
+    assert!(human.contains(".features.yaml unchanged"));
     assert!(human.contains("next: bpatch extract --commit"));
     assert!(!store.status_porcelain()?.is_empty());
     Ok(())
@@ -92,7 +92,7 @@ fn feature_routing_requires_explicit_policy_then_named_feature_appends_yaml() ->
     let base = write_base_checkout(&checkout)?;
     let store = FixtureRepo::new()?;
     let store_dir = seed_store(&store, &base)?;
-    let original_features = fs::read(store_dir.join("features.yaml"))?;
+    let original_features = fs::read(store_dir.join(".features.yaml"))?;
     store.commit("seed store")?;
 
     checkout.write_file("chrome/browser/browseros/wallet/service.cc", "wallet cc\n")?;
@@ -139,7 +139,7 @@ fn feature_routing_requires_explicit_policy_then_named_feature_appends_yaml() ->
     assert_eq!(routed.result, ExtractReportResult::Extracted);
     assert_eq!(routed.patches, Some(4));
     assert_eq!(routed.new_features, vec!["wallet"]);
-    let updated_features = fs::read(store_dir.join("features.yaml"))?;
+    let updated_features = fs::read(store_dir.join(".features.yaml"))?;
     assert!(updated_features.starts_with(&original_features));
     let store_model = Store::load(&store_dir)?;
     assert_eq!(
@@ -148,7 +148,7 @@ fn feature_routing_requires_explicit_policy_then_named_feature_appends_yaml() ->
     );
     let human = extract::render_human(&routed);
     assert!(human.contains("created feature \"wallet\""));
-    assert!(human.contains("store: 4 patches written · features.yaml +1 feature"));
+    assert!(human.contains("store: 4 patches written · .features.yaml +1 feature"));
     Ok(())
 }
 
@@ -374,11 +374,11 @@ fn write_repin_base(repo: &FixtureRepo, version: &str, upstream_contents: &str) 
 
 fn seed_store(store: &FixtureRepo, base: &str) -> Result<PathBuf> {
     store.write_file(
-        "chromium_patches/store.yaml",
+        "chromium_patches/.store.yaml",
         format!("base_commit: {base}\nbase_version: \"148.0.7204.1\"\n"),
     )?;
     store.write_file(
-        "chromium_patches/features.yaml",
+        "chromium_patches/.features.yaml",
         r#"version: "1.0"
 features:
   # comment that must survive feature appends

@@ -404,7 +404,7 @@ fn store_base_pin_move_refuses_when_checkout_still_has_applied_history() -> Resu
         .git()
         .run(&["checkout", "-B", "main", &scenario.rev1_commit])?;
     scenario.store.write_file(
-        "chromium_patches/store.yaml",
+        "chromium_patches/.store.yaml",
         format!("base_commit: {new_base}\nbase_version: \"149.0.7250.0\"\n"),
     )?;
     scenario.store.commit("repin store")?;
@@ -643,11 +643,11 @@ fn write_checkout_rev2(repo: &FixtureRepo, include_build: bool) -> Result<()> {
 
 fn seed_store(store: &FixtureRepo, base: &str) -> Result<PathBuf> {
     store.write_file(
-        "chromium_patches/store.yaml",
+        "chromium_patches/.store.yaml",
         format!("base_commit: {base}\nbase_version: \"148.0.7204.1\"\n"),
     )?;
     store.write_file(
-        "chromium_patches/features.yaml",
+        "chromium_patches/.features.yaml",
         r#"version: "1.0"
 features:
   llmchat:
