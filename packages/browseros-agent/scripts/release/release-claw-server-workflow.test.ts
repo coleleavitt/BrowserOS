@@ -2,6 +2,9 @@ import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { clawOnboardBuildProduct } from '../build/claw-onboard/descriptor'
+import { clawServerBuildProduct } from '../build/claw-server/descriptor'
+
 const repoRoot = resolve(import.meta.dir, '../../../..')
 const workflow = readFileSync(
   resolve(repoRoot, '.github/workflows/release-claw-server.yml'),
@@ -28,12 +31,16 @@ describe('release-claw-server workflow', () => {
   })
 
   it('publishes claw-server and claw-onboard resources to their consumer prefixes', () => {
-    expect(workflow).toContain(
-      'R2_UPLOAD_PREFIX=claw-server/prod-resources bun scripts/build/claw-server.ts --target=all --upload',
+    expect(clawServerBuildProduct.env.defaultR2UploadPrefix).toBe(
+      'claw-server/prod-resources',
+    )
+    expect(clawOnboardBuildProduct.env.defaultR2UploadPrefix).toBe(
+      'claw-onboard/prod-resources',
     )
     expect(workflow).toContain(
-      'R2_UPLOAD_PREFIX=claw-onboard/prod-resources bun scripts/build/claw-onboard.ts --upload',
+      'bun scripts/build/claw-server.ts --target=all --upload',
     )
+    expect(workflow).toContain('bun scripts/build/claw-onboard.ts --upload')
     expect(workflow).toContain(
       `claw-server/prod-resources/latest/browseros-claw-server-resources-${shellTargetPlaceholder}.zip`,
     )

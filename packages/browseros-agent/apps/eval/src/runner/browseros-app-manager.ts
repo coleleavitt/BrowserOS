@@ -241,7 +241,7 @@ export class BrowserOSAppManager {
     this.serverProc = spawn({
       cmd: [
         'bun',
-        '--env-file=apps/server/.env.development',
+        '--env-file=.env.development',
         'apps/server/src/index.ts',
         '--config',
         sidecarPath,

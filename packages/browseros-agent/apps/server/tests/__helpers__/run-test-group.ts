@@ -117,7 +117,7 @@ export function buildTestCommand(
 ): string[] {
   const cmd = [
     process.execPath,
-    '--env-file=.env.development',
+    '--env-file=../../.env.development',
     'test',
     `--preload=${testPreloadPath}`,
   ]

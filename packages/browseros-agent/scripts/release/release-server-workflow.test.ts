@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { browserosServerBuildProduct } from '../build/server/descriptor'
 
 const repoRoot = resolve(import.meta.dir, '../../../..')
 const workflow = readFileSync(
@@ -54,11 +55,16 @@ describe('release-server workflow', () => {
   })
 
   it('publishes all server resource zips to the consumer R2 prefix', () => {
+    expect(browserosServerBuildProduct.env.defaultR2UploadPrefix).toBe(
+      'artifacts/server',
+    )
+    expect(browserosServerBuildProduct.env.defaultR2DownloadPrefix).toBe(
+      'artifacts/vendor',
+    )
     expect(workflow).toContain(
       'bun scripts/build/server.ts --target=all --upload',
     )
-    expect(workflow).toContain('R2_UPLOAD_PREFIX: artifacts/server')
-    expect(workflow).toContain(': > apps/server/.env.production')
+    expect(workflow).not.toContain('.env.production')
     expect(workflow).toContain(
       'targets=(darwin-arm64 darwin-x64 linux-arm64 linux-x64 windows-x64)',
     )

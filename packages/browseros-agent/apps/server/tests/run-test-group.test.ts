@@ -25,7 +25,7 @@ describe('buildTestCommand', () => {
   it('preloads the test env bootstrap before running targets', () => {
     expect(buildTestCommand(['./tests/api'])).toEqual([
       process.execPath,
-      '--env-file=.env.development',
+      '--env-file=../../.env.development',
       'test',
       '--preload=./tests/__helpers__/test-env.ts',
       './tests/api',

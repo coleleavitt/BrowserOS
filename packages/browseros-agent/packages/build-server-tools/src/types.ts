@@ -35,14 +35,12 @@ export interface R2Config {
 }
 
 export interface BuildEnvSpec {
-  prodEnvPath: string
-  prodEnvTemplatePath?: string
-  requireProdEnvFile?: boolean
   requiredInlineEnvKeys: readonly string[]
   inlineEnvKeys: readonly string[]
   ciInlineEnvDefaults?: Record<string, string>
   inlineEnvOverrides?: Record<string, string>
   defaultR2UploadPrefix: string
+  defaultR2DownloadPrefix?: string
 }
 
 export interface BundleOptions {

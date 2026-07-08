@@ -414,8 +414,6 @@ func DefaultProductionEnv() ProductionEnv {
 			"R2_ACCESS_KEY_ID":     "",
 			"R2_SECRET_ACCESS_KEY": "",
 			"R2_BUCKET":            "",
-			"R2_DOWNLOAD_PREFIX":   "artifacts/vendor",
-			"R2_UPLOAD_PREFIX":     "artifacts/server",
 			"NODE_ENV":             "production",
 			"LOG_LEVEL":            "debug",
 		},
@@ -425,7 +423,6 @@ func DefaultProductionEnv() ProductionEnv {
 			"R2_ACCESS_KEY_ID":     "",
 			"R2_SECRET_ACCESS_KEY": "",
 			"R2_BUCKET":            "browseros",
-			"R2_UPLOAD_PREFIX":     "",
 		},
 	}
 }

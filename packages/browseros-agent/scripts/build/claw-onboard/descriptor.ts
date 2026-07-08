@@ -15,8 +15,6 @@ export const clawOnboardBuildProduct: AssetBuildProductDescriptor = {
   distRoot: 'dist/prod/claw-onboard',
   archiveBaseName: 'browseros-claw-onboard-resources',
   env: {
-    prodEnvPath: 'apps/claw-onboard/.env.production',
-    requireProdEnvFile: false,
     requiredInlineEnvKeys: [],
     inlineEnvKeys: INLINED_ENV_VARS,
     ciInlineEnvDefaults: PRODUCTION_INLINE_ENV,

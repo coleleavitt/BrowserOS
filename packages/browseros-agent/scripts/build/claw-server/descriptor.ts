@@ -17,8 +17,6 @@ export const clawServerBuildProduct: BuildProductDescriptor = {
   archiveBaseName: 'browseros-claw-server-resources',
   defaultManifestPath: 'scripts/build/config/claw-server-prod-resources.json',
   env: {
-    prodEnvPath: 'apps/claw-server/.env.production',
-    requireProdEnvFile: false,
     requiredInlineEnvKeys: [],
     inlineEnvKeys: INLINED_ENV_VARS,
     ciInlineEnvDefaults: PRODUCTION_INLINE_ENV,

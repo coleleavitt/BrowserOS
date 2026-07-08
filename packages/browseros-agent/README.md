@@ -74,10 +74,8 @@ packages/
 ### Setup
 
 ```bash
-# Copy environment files for each package
-cp apps/server/.env.example apps/server/.env.development
-cp apps/app/.env.example apps/app/.env.development
-cp apps/server/.env.production.example apps/server/.env.production
+# Copy the root development environment file
+cp .env.development.example .env.development
 
 # Install deps and generate agent code
 bun run dev:setup
@@ -87,14 +85,19 @@ bun run dev:watch
 ```
 
 `dev:watch` starts the server and app UI immediately.
+Existing checkouts with old per-app env files should run `bun run env:migrate` to merge those values into the root files.
+For release builds, copy `.env.production.example` to `.env.production` and fill the production-only secrets before running build or upload scripts.
 
 ### Environment Variables
 
-Runtime uses `.env.development`, while production artifact builds use `.env.production`:
+The monorepo has two root env files:
 
-- `apps/server/.env.development` - Server env that is not sidecar startup config
-- `apps/server/.env.production` - Server production artifact build configuration
-- `apps/app/.env.development` - App UI configuration
+- `.env.development` - local development, tests, app/server/eval runs, and codegen inputs.
+- `.env.production` - release builds and upload scripts.
+
+Both are gitignored. Their tracked templates, `.env.development.example` and `.env.production.example`, are generated from `@browseros/shared/env/registry`; run `bun run env:examples` after changing the registry. CI drift-checks the generated examples.
+
+Fresh clone setup is: copy `.env.development.example` to `.env.development`, fill any secrets needed for the workflow, then run `bun run dev:*`. Existing checkouts can run `bun run env:migrate` to merge old per-app values into the root files.
 
 **Server Sidecar Config** (`--config <path>`)
 
@@ -109,49 +112,27 @@ The server and Claw server read startup ports, resource directories, execution d
 | `directories.execution` | Runtime execution/log/config directory |
 | `instance.*` | Optional browser/client metadata |
 
-**Server Env Variables** (`apps/server/.env.development`)
+**Root Env Sections**
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BROWSEROS_CONFIG_URL` | - | Remote config endpoint for rate limits |
-| `POSTHOG_API_KEY` | - | Server-side PostHog API key |
-| `SENTRY_DSN` | - | Server-side Sentry DSN |
-| `BROWSEROS_TEST_HEADLESS` | false | Headless mode for server tests |
+| Section | File | Purpose |
+|---------|------|---------|
+| `dev-tools` | `.env.development` | Optional codegen and local tooling inputs such as `CDP_PROTOCOL_JSON` and `BROWSEROS_BINARY`. |
+| `app` | `.env.development` | Browser extension and local BrowserOS launch settings, including dev ports, public Vite values, source-map upload settings, and optional GraphQL schema path. |
+| `claw` | `.env.development` | Optional Claw app/server overrides such as Claw API URL, user-data dir, CDP port, and `BROWSERCLAW_DIR`. |
+| `server` | `.env.development`, `.env.production` | Server config URL, telemetry, Sentry, `NODE_ENV`, log level, and local server test settings. |
+| `eval` | `.env.development` | LLM provider keys, suite-mode model settings, BrowserOS server/binary paths, WebArena-Infinity paths, and eval report publishing settings. |
+| `build` | `.env.production` | Build-time production values such as `AGENT_RUNNER_JWT_SECRET`. |
+| `upload` | `.env.production` | Cloudflare R2 credentials and bucket for production artifact uploads. |
 
-**Server Production Build Variables** (`apps/server/.env.production`)
+Production build and upload scripts read root `.env.production` plus exported process env through the shared loader in `@browseros/shared/env/*`; exported process env takes precedence. Missing required values fail with an error naming the key, section, and root file.
 
-Copy from `apps/server/.env.production.example` before running `build:server`.
-`build:server` requires all values below except `R2_DOWNLOAD_PREFIX` and `R2_UPLOAD_PREFIX`.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BROWSEROS_CONFIG_URL` | - | Remote config endpoint baked into prod binary |
-| `POSTHOG_API_KEY` | - | PostHog key baked into prod binary |
-| `SENTRY_DSN` | - | Sentry DSN baked into prod binary |
-| `R2_ACCOUNT_ID` | - | Cloudflare account id for production artifact downloads/uploads |
-| `R2_ACCESS_KEY_ID` | - | Cloudflare R2 access key id |
-| `R2_SECRET_ACCESS_KEY` | - | Cloudflare R2 secret access key |
-| `R2_BUCKET` | - | Cloudflare R2 bucket name |
-| `R2_DOWNLOAD_PREFIX` | - | Optional prefix prepended to third-party resource object keys |
-| `R2_UPLOAD_PREFIX` | `server/prod-resources` | Optional prefix for uploaded artifact zips |
-
-**App Variables** (`apps/app/.env.development`)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BROWSEROS_SERVER_PORT` | 9100 | Passed to BrowserOS browser launch flags |
-| `BROWSEROS_CDP_PORT` | 9000 | Passed to BrowserOS browser launch flags |
-| `BROWSEROS_EXTENSION_PORT` | 9300 | Legacy BrowserOS CLI arg still passed for compatibility |
-| `BROWSEROS_BINARY` | - | Path to BrowserOS binary |
-| `USE_BROWSEROS_BINARY` | true | Use BrowserOS instead of default Chrome |
-| `VITE_PUBLIC_POSTHOG_KEY` | - | Agent UI PostHog key |
-| `VITE_PUBLIC_SENTRY_DSN` | - | Agent UI Sentry DSN |
 ### Commands
 
 ```bash
 # Start
 bun run dev:watch             # Start server and app with generated sidecar config
-cd apps/server && bun --env-file=.env.development src/index.ts --config ../../config.dev.json
+bun run start:server          # Start the server from the repo root
+cd apps/server && bun --env-file=../../.env.development src/index.ts --config ../../config.dev.json
 
 # Build
 bun run build                 # Build server and agent

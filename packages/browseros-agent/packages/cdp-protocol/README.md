@@ -74,7 +74,7 @@ Types are auto-generated from the CDP protocol specification. The generated outp
    CDP_PROTOCOL_JSON=/path/to/chromium/src/out/Default_arm64/gen/third_party/blink/public/devtools_protocol/protocol.json bun run gen:cdp
    ```
 
-   You can also copy `.env.example` to `.env` and set `CDP_PROTOCOL_JSON` there; Bun loads `.env` automatically when running the codegen script.
+   You can also set `CDP_PROTOCOL_JSON` in the monorepo root `.env.development`; `bun run gen:cdp` loads it with `--env-file`.
 
 3. Review and commit all regenerated files:
 

@@ -44,9 +44,6 @@ func TestDefaults(t *testing.T) {
 	if cfg.ProductionEnv.CLI["R2_BUCKET"] != "browseros" {
 		t.Fatalf("missing cli production env defaults: %#v", cfg.ProductionEnv.CLI)
 	}
-	if cfg.ProductionEnv.CLI["R2_UPLOAD_PREFIX"] != "" {
-		t.Fatalf("cli upload prefix got %q want empty", cfg.ProductionEnv.CLI["R2_UPLOAD_PREFIX"])
-	}
 }
 
 func TestClawDefaultsUseSeparateRuntimePaths(t *testing.T) {

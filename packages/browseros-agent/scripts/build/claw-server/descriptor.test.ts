@@ -67,7 +67,7 @@ describe('claw server build descriptor', () => {
       '{"version":"0.0.0-test"}',
     )
     if (envContent !== undefined) {
-      await writeFile(join(packageDir, '.env.production'), envContent)
+      await writeFile(join(tempRoot, '.env.production'), envContent)
     }
     return tempRoot
   }

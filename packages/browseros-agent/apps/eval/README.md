@@ -15,8 +15,8 @@ Evaluation framework for BrowserOS browser automation agents. Runs tasks from st
 
 ```bash
 cd apps/eval
-cp .env.example .env.development
-# Edit .env.development with your keys, then:
+(cd ../.. && cp .env.development.example .env.development)
+# Edit ../../.env.development with your keys, then:
 bun run eval
 ```
 
@@ -158,10 +158,12 @@ Set `graders` in your config to override the per-task `graders` field from the d
 ### API keys
 
 The `apiKey` field supports two formats:
-- **Env var name**: `"OPENAI_API_KEY"` — resolved from `.env.development` at runtime
+- **Env var name**: `"OPENAI_API_KEY"` — resolved from the monorepo root `.env.development` at runtime
 - **Direct value**: `"sk-xxxxx"` — used as-is (not recommended)
 
 ### Environment variables
+
+Set eval environment variables in the monorepo root `.env.development` file.
 
 | Variable | Used for |
 |----------|----------|
@@ -312,7 +314,7 @@ Manifest paths are stable artifact locations, not a guarantee that every optiona
 
 **Port conflicts**: Each worker uses `base_port + workerIndex`. 3 workers on base 9110 → ports 9110, 9111, 9112. Stop other BrowserOS instances first.
 
-**API key not resolving**: If your config has `"apiKey": "OPENAI_API_KEY"`, ensure the env var is set in `.env.development`.
+**API key not resolving**: If your config has `"apiKey": "OPENAI_API_KEY"`, ensure the env var is set in the monorepo root `.env.development`.
 
 **Tasks timing out**: Increase `timeout_ms`. Default is 30 minutes.
 

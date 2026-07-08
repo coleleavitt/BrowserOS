@@ -99,8 +99,8 @@ Content script that creates a visual indicator (pulsing orange glow) around the 
 ### Setup
 
 ```bash
-# Copy environment file
-cp .env.example .env.development
+# From this app directory, create the shared root development env file
+(cd ../.. && cp .env.development.example .env.development)
 
 # Install dependencies
 bun install
@@ -124,7 +124,7 @@ bun run zip
 
 ### Environment Variables
 
-Create a `.env.development` file for local development:
+Set extension development values in the monorepo root `.env.development` file:
 
 ```env
 SENTRY_ORG=your-org
@@ -171,7 +171,7 @@ only.
 Bun is the exclusive runtime and package manager:
 - All scripts use `bun run <script>` instead of npm
 - Package installation via `bun install`
-- Environment files automatically loaded (no dotenv needed)
+- Development scripts load the monorepo root `.env.development` file
 - Enforced via `engines` field in `package.json`
 
 ### Biome

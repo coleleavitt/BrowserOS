@@ -250,7 +250,7 @@ func prepareBrowserOSEnvironment(cfg *config.Config, agentRoot string, opts envi
 	if err := prepareProfile(cfg, opts); err != nil {
 		return err
 	}
-	if err := pipeline.WriteProductionEnvFiles(agentRoot, *cfg); err != nil {
+	if err := pipeline.WriteProductionEnvFile(agentRoot, *cfg); err != nil {
 		return err
 	}
 	return resolveEnvironmentPorts(cfg, true)
@@ -413,15 +413,15 @@ func (e *environment) ForceKill() {
 }
 
 func serverCommand(configPath string) []string {
-	return []string{"bun", "--env-file=.env.development", "src/index.ts", "--config", configPath}
+	return []string{"bun", "--env-file=../../.env.development", "src/index.ts", "--config", configPath}
 }
 
 func clawAppCommand() []string {
-	return []string{"bun", "--env-file=.env.development", "wxt"}
+	return []string{"bun", "--env-file=../../.env.development", "wxt"}
 }
 
 func clawServerCommand(configPath string) []string {
-	return []string{"bun", "--watch", "--env-file=.env.development", "src/main.ts", "--config", configPath}
+	return []string{"bun", "--watch", "--env-file=../../.env.development", "src/main.ts", "--config", configPath}
 }
 
 func serverRuntimeEnv(base []string, cfg config.Config) []string {

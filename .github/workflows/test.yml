@@ -135,9 +135,9 @@ jobs:
           EOF
           chmod +x .ci/bin/browseros
 
-      - name: Create server env file
-        working-directory: packages/browseros-agent/apps/server
-        run: cp .env.example .env.development
+      - name: Create dev env file
+        working-directory: packages/browseros-agent
+        run: cp .env.development.example .env.development
 
       - name: Run ${{ matrix.suite }} tests
         id: test

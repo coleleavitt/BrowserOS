@@ -158,8 +158,6 @@ jobs:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      R2_DOWNLOAD_PREFIX: artifacts/vendor
-      R2_UPLOAD_PREFIX: artifacts/server
       BROWSEROS_CONFIG_URL: ${{ secrets.BROWSEROS_CONFIG_URL }}
       POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
@@ -253,11 +251,6 @@ jobs:
             raise SystemExit(f"Expected exactly one apps/server version entry in bun.lock, found {count}")
           lock_path.write_text(updated)
           PY
-
-      - name: Materialize server production env file
-        working-directory: packages/browseros-agent
-        run: |
-          : > apps/server/.env.production
 
       - name: Publish server resource zips to R2
         working-directory: packages/browseros-agent

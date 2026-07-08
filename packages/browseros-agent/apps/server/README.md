@@ -122,11 +122,11 @@ apps/server/
 ### Setup
 
 ```bash
-# Copy environment files
-cp .env.example .env.development
+# From this app directory, create the shared root development env file
+(cd ../.. && cp .env.development.example .env.development)
 
 # Start the server directly (dev:watch generates this config automatically)
-bun --env-file=.env.development src/index.ts --config ../../config.dev.json
+bun --env-file=../../.env.development src/index.ts --config ../../config.dev.json
 ```
 
 See the [agent monorepo README](../../README.md) for full environment variable reference and `dev:watch` setup.

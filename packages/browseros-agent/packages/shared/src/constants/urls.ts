@@ -7,6 +7,7 @@
  */
 
 export const EXTERNAL_URLS = {
+  CDN: 'https://cdn.browseros.com',
   KLAVIS_PROXY: 'https://llm.browseros.com/klavis',
   POSTHOG_DEFAULT: 'https://us.i.posthog.com',
   OPENAI_AUTH: 'https://auth.openai.com/oauth/authorize',

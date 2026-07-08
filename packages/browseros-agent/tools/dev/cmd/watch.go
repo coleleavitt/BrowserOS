@@ -291,7 +291,7 @@ func startBrowserOSWatch(ctx context.Context, wg *sync.WaitGroup, root string, e
 	if manual {
 		proc.LogMsg(proc.TagBuild, "Building agent (dev)...")
 		if err := proc.RunBlocking(ctx, agentDir, proc.TagBuild,
-			"bun", "--env-file=.env.development", "wxt", "build", "--mode", "development"); err != nil {
+			"bun", "--env-file=../../.env.development", "wxt", "build", "--mode", "development"); err != nil {
 			return nil, fmt.Errorf("agent build failed: %w", err)
 		}
 		proc.LogMsg(proc.TagBuild, "agent built")
@@ -316,7 +316,7 @@ func startBrowserOSWatch(ctx context.Context, wg *sync.WaitGroup, root string, e
 			Dir:     agentDir,
 			Env:     env,
 			Restart: true,
-			Cmd:     []string{"bun", "--env-file=.env.development", "wxt"},
+			Cmd:     []string{"bun", "--env-file=../../.env.development", "wxt"},
 		}))
 	}
 
@@ -330,7 +330,7 @@ func startBrowserOSWatch(ctx context.Context, wg *sync.WaitGroup, root string, e
 		Dir:     filepath.Join(root, "apps/server"),
 		Env:     env,
 		Restart: true,
-		Cmd:     []string{"bun", "--watch", "--env-file=.env.development", "src/index.ts", "--config", sidecarPath},
+		Cmd:     []string{"bun", "--watch", "--env-file=../../.env.development", "src/index.ts", "--config", sidecarPath},
 		BeforeStart: func() error {
 			if err := writeServerSidecarConfig(sidecarPath, root, userDataDir, p); err != nil {
 				return err
@@ -351,7 +351,7 @@ func startClawWatch(ctx context.Context, wg *sync.WaitGroup, root string, env []
 		Dir:     filepath.Join(root, "apps/claw-app"),
 		Env:     env,
 		Restart: true,
-		Cmd:     []string{"bun", "--env-file=.env.development", "wxt"},
+		Cmd:     []string{"bun", "--env-file=../../.env.development", "wxt"},
 	}))
 
 	// Plain-URL preview of the newtab UI. Static-serves the same
@@ -399,7 +399,7 @@ func clawServerProcConfig(root string, env []string, p proc.Ports, userDataDir s
 		cfg.Cmd = []string{"cargo", "run", "-p", "claw-server-rust", "--", "--config", sidecarPath}
 	} else {
 		cfg.Dir = filepath.Join(root, "apps/claw-server")
-		cfg.Cmd = []string{"bun", "--watch", "--env-file=.env.development", "src/main.ts", "--config", sidecarPath}
+		cfg.Cmd = []string{"bun", "--watch", "--env-file=../../.env.development", "src/main.ts", "--config", sidecarPath}
 	}
 	return cfg
 }

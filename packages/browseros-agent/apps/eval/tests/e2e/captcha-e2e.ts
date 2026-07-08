@@ -15,7 +15,7 @@
  *   - BrowserOS binary available
  *
  * Run:
- *   bun --env-file=apps/eval/.env.development apps/eval/tests/e2e/captcha-e2e.ts
+ *   bun --env-file=.env.development apps/eval/tests/e2e/captcha-e2e.ts
  */
 
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'

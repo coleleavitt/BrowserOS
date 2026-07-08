@@ -5,10 +5,10 @@
   "version": "0.0.1",
   "description": "WXT extension surface for BrowserClaw. React + shadcn (base-vega). Talks to @browseros/claw-server over hono-rpc.",
   "scripts": {
-    "dev": "bun --env-file=.env.development wxt",
+    "dev": "bun --env-file=../../.env.development wxt",
     "dev:web": "serve dist/chrome-mv3-dev -p 5174 --no-clipboard",
     "build": "wxt build",
-    "build:dev": "bun --env-file=.env.development wxt build --mode development",
+    "build:dev": "bun --env-file=../../.env.development wxt build --mode development",
     "test": "bun test",
     "zip": "wxt zip",
     "compile": "wxt prepare && tsc --noEmit",

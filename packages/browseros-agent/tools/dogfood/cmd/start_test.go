@@ -10,7 +10,7 @@ import (
 
 func TestServerCommandDoesNotWatchFiles(t *testing.T) {
 	got := serverCommand("/tmp/server-config.json")
-	want := []string{"bun", "--env-file=.env.development", "src/index.ts", "--config", "/tmp/server-config.json"}
+	want := []string{"bun", "--env-file=../../.env.development", "src/index.ts", "--config", "/tmp/server-config.json"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("server command got %#v want %#v", got, want)
 	}
@@ -18,13 +18,13 @@ func TestServerCommandDoesNotWatchFiles(t *testing.T) {
 
 func TestClawCommandsUseStandaloneWXTAndServer(t *testing.T) {
 	app := clawAppCommand()
-	wantApp := []string{"bun", "--env-file=.env.development", "wxt"}
+	wantApp := []string{"bun", "--env-file=../../.env.development", "wxt"}
 	if !reflect.DeepEqual(app, wantApp) {
 		t.Fatalf("claw app command got %#v want %#v", app, wantApp)
 	}
 
 	server := clawServerCommand("/tmp/claw-server.json")
-	wantServer := []string{"bun", "--watch", "--env-file=.env.development", "src/main.ts", "--config", "/tmp/claw-server.json"}
+	wantServer := []string{"bun", "--watch", "--env-file=../../.env.development", "src/main.ts", "--config", "/tmp/claw-server.json"}
 	if !reflect.DeepEqual(server, wantServer) {
 		t.Fatalf("claw server command got %#v want %#v", server, wantServer)
 	}

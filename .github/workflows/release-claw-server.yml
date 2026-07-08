@@ -242,11 +242,11 @@ jobs:
 
       - name: Publish claw-server resource zips to R2
         working-directory: packages/browseros-agent
-        run: R2_UPLOAD_PREFIX=claw-server/prod-resources bun scripts/build/claw-server.ts --target=all --upload
+        run: bun scripts/build/claw-server.ts --target=all --upload
 
       - name: Publish claw-onboard resources to R2
         working-directory: packages/browseros-agent
-        run: R2_UPLOAD_PREFIX=claw-onboard/prod-resources bun scripts/build/claw-onboard.ts --upload
+        run: bun scripts/build/claw-onboard.ts --upload
 
       - name: Attach zips to GitHub release
         working-directory: packages/browseros-agent

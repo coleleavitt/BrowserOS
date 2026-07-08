@@ -245,6 +245,28 @@ func TestClawRustServerProcConfigPassesSidecarAndDevEnv(t *testing.T) {
 	}
 }
 
+func TestClawServerProcConfigUsesRootDevelopmentEnv(t *testing.T) {
+	root := t.TempDir()
+	userDataDir := t.TempDir()
+	sidecarPath := watchSidecarConfigPath(userDataDir, "claw-server")
+	ports := proc.Ports{
+		CDP:       9012,
+		Server:    9123,
+		Extension: 9321,
+	}
+	cfg := clawServerProcConfig(root, nil, ports, userDataDir, sidecarPath, false, func(_ int, _ time.Duration) error {
+		return nil
+	})
+
+	wantCmd := []string{"bun", "--watch", "--env-file=../../.env.development", "src/main.ts", "--config", sidecarPath}
+	if !reflect.DeepEqual(cfg.Cmd, wantCmd) {
+		t.Fatalf("expected claw-server command %#v, got %#v", wantCmd, cfg.Cmd)
+	}
+	if cfg.Dir != filepath.Join(root, "apps/claw-server") {
+		t.Fatalf("expected claw-server to run from app dir, got %q", cfg.Dir)
+	}
+}
+
 func TestRustClawWatchInputsUseSourceAndManifestInputs(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{
@@ -415,11 +437,7 @@ func containsString(values []string, want string) bool {
 func writeWatchEnvExample(t *testing.T, contents string) string {
 	t.Helper()
 	root := t.TempDir()
-	serverDir := filepath.Join(root, "apps/server")
-	if err := os.MkdirAll(serverDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(serverDir, ".env.example"), []byte(contents), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".env.development.example"), []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root

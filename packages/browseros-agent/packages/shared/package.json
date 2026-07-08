@@ -38,6 +38,18 @@
       "types": "./src/constants/hermes.ts",
       "default": "./src/constants/hermes.ts"
     },
+    "./env/registry": {
+      "types": "./src/env/registry.ts",
+      "default": "./src/env/registry.ts"
+    },
+    "./env/load": {
+      "types": "./src/env/load.ts",
+      "default": "./src/env/load.ts"
+    },
+    "./env/generate": {
+      "types": "./src/env/generate.ts",
+      "default": "./src/env/generate.ts"
+    },
     "./types/logger": {
       "types": "./src/types/logger.ts",
       "default": "./src/types/logger.ts"

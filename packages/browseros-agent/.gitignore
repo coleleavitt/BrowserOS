@@ -11,11 +11,10 @@ lerna-debug.log*
 .env.dev
 .env.prod
 
-# Ignore all .env files except .env.example
+# Ignore all .env files except the root examples
 **/.env.*
-!**/.env.example
-!**/.env.sample
-!**/.env.production.example
+!/.env.development.example
+!/.env.production.example
 
 
 # sqlite database

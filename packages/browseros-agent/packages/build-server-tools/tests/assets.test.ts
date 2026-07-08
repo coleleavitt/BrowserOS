@@ -25,8 +25,6 @@ function testAssetProduct(
     distRoot: 'dist/prod/test-onboard',
     archiveBaseName: 'test-onboard-resources',
     env: {
-      prodEnvPath: 'apps/test-onboard/.env.production',
-      requireProdEnvFile: false,
       requiredInlineEnvKeys: [],
       inlineEnvKeys: [],
       defaultR2UploadPrefix: 'test-onboard/prod-resources',
