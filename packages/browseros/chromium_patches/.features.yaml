@@ -55,22 +55,6 @@ features:
       - components/vector_icons/BUILD.gn
       - components/vector_icons/chat_orange.icon
 
-  build-resources:
-    description: "feat: build resources"
-    files:
-      - chrome/BROWSEROS_VERSION
-      - chrome/VERSION
-      - chrome/app/chromium_strings.grd
-      - chrome/app/settings_chromium_strings.grdp
-      - chrome/app/theme/chromium/
-      - chrome/app/theme/default_100_percent/chromium/
-      - chrome/app/theme/default_200_percent/chromium/
-      - chrome/browser/browseros/claw_server/resources/
-      - chrome/browser/browseros/onboarding/resources/
-      - chrome/browser/browseros/server/resources/
-      - chrome/enterprise_companion/branding.gni
-      - chrome/updater/branding.gni
-
   browserclaw-product-dir:
     description: "feat: per-product user-data dir via browseros_product buildflag"
     files:
