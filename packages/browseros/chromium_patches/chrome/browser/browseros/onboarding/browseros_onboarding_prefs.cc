@@ -1,6 +1,6 @@
 diff --git a/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.cc b/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.cc
 new file mode 100644
-index 0000000000000..ecf479d743ba8
+index 0000000000000..0da2a0e14b2daaabd33a9db1f624308aa09a86af
 --- /dev/null
 +++ b/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.cc
 @@ -0,0 +1,37 @@
@@ -36,8 +36,9 @@ index 0000000000000..ecf479d743ba8
 +    return;
 +  }
 +
-+  profile->GetPrefs()->SetBoolean(browseros::prefs::kOnboardingCompleted,
-+                                  true);
++  PrefService* prefs = profile->GetPrefs();
++  prefs->SetBoolean(browseros::prefs::kOnboardingCompleted, true);
++  prefs->CommitPendingWrite();
 +}
 +
 +}  // namespace browseros::onboarding

@@ -1,16 +1,16 @@
 diff --git a/chrome/browser/ui/startup/startup_browser_creator.cc b/chrome/browser/ui/startup/startup_browser_creator.cc
-index 597bd5bfdcbbf..9b8998497b560 100644
+index 597bd5bfdcbbf..846af4e4c9df8 100644
 --- a/chrome/browser/ui/startup/startup_browser_creator.cc
 +++ b/chrome/browser/ui/startup/startup_browser_creator.cc
-@@ -39,6 +39,7 @@
- #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
- #include "chrome/browser/apps/platform_apps/app_load_service.h"
+@@ -41,6 +41,7 @@
  #include "chrome/browser/apps/platform_apps/platform_app_launch.h"
-+#include "chrome/browser/browseros/onboarding/browseros_onboarding_prefs.h"
  #include "chrome/browser/browser_features.h"
  #include "chrome/browser/browser_process.h"
++#include "chrome/browser/browseros/onboarding/browseros_onboarding_prefs.h"
  #include "chrome/browser/extensions/startup_helper.h"
-@@ -474,6 +475,46 @@ void OpenNewWindowForFirstRun(const base::CommandLine& command_line,
+ #include "chrome/browser/first_run/first_run.h"
+ #include "chrome/browser/lifetime/browser_shutdown.h"
+@@ -474,6 +475,49 @@ void OpenNewWindowForFirstRun(const base::CommandLine& command_line,
  }
  #endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
  
@@ -41,14 +41,17 @@ index 597bd5bfdcbbf..9b8998497b560 100644
 +    return;
 +  }
 +
-+  StartupBrowserCreator browser_creator;
 +  if (status == ProfilePicker::FirstRunExitStatus::kCompleted) {
-+    browser_creator.AddFirstRunTabs(first_run_urls);
-+  } else {
-+    // Must precede LaunchBrowser(): it re-checks ShouldShow() and would
-+    // re-open the onboarding picker mid-teardown.
-+    browseros::onboarding::MarkCompleted(profile);
++    ProfilePicker::SetOpenCommandLineUrlsInNextProfileOpened(true);
++    ProfilePicker::SetFirstRunTabsInNextProfileOpened(first_run_urls);
++    return;
 +  }
++
++  // Must precede LaunchBrowser(): it re-checks ShouldShow() and would
++  // re-open the onboarding picker mid-teardown.
++  browseros::onboarding::MarkCompleted(profile);
++
++  StartupBrowserCreator browser_creator;
 +  browser_creator.LaunchBrowser(command_line, profile, cur_dir, process_startup,
 +                                is_first_run, /*restore_tabbed_browser=*/true);
 +}
@@ -57,7 +60,7 @@ index 597bd5bfdcbbf..9b8998497b560 100644
  #if BUILDFLAG(IS_CHROMEOS)
  // Returns the app id of the kiosk app associated with the current user session.
  // Returns nullopt for non-kiosk user sessions and for ARCVM kiosk sessions,
-@@ -712,6 +753,18 @@ void StartupBrowserCreator::LaunchBrowser(
+@@ -712,6 +756,18 @@ void StartupBrowserCreator::LaunchBrowser(
        command_line, {profile, StartupProfileMode::kBrowserWindow});
  
    if (!IsSilentLaunchEnabled(command_line, profile)) {

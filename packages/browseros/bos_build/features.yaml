@@ -430,6 +430,15 @@ features:
       - chrome/browser/ui/views/side_panel/side_panel.h
       - chrome/browser/ui/views/side_panel/side_panel_coordinator.cc
 
+  onboarding-complete-crash:
+    description: "fix: BrowserOS onboarding completion crash"
+    files:
+      - chrome/browser/profiles/profile_window.cc
+      - chrome/browser/profiles/profile_window.h
+      - chrome/browser/ui/profiles/profile_picker.cc
+      - chrome/browser/ui/profiles/profile_picker.h
+      - chrome/browser/ui/views/profiles/profile_management_flow_controller.cc
+
   misc:
     description: "chore: miscellaneous patches"
     files:
