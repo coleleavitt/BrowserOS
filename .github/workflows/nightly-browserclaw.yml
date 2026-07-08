@@ -155,6 +155,7 @@ jobs:
 
           cd "$browseros_root"
           AGENT_ROOT="$agent_root" BROWSEROS_ROOT="$browseros_root" uv run python - <<'PY'
+          import os
           import shutil
           from pathlib import Path
 
