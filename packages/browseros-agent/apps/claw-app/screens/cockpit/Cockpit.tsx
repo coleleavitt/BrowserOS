@@ -1,4 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query'
 import { CockpitHero } from '@/components/cockpit/CockpitHero'
 import { CockpitOnboarding } from '@/components/cockpit/CockpitOnboarding'
 import { RecentActivity } from '@/components/cockpit/RecentActivity'
@@ -14,7 +13,6 @@ const ONBOARDING_PROBE_LIMIT = 1
 /** Renders the Claw cockpit homepage. */
 export function Cockpit() {
   const { agents } = useCockpitData()
-  const queryClient = useQueryClient()
 
   // Probe the two data sources the onboarding state hinges on. Both
   // queries live in react-query's cache under stable keys, so the
@@ -23,6 +21,18 @@ export function Cockpit() {
   const connections = useBrowserosConnections()
   const taskProbe = useTasks({
     variables: { limit: ONBOARDING_PROBE_LIMIT },
+    // Scoped to the onboarding shells: poll every 4s while the
+    // reader has no activity yet so the 'ready' handoff lands
+    // within a few seconds of their first agent write. Once any
+    // task appears, the function returns `false` and react-query
+    // stops polling this key; the paginated `RecentActivity` query
+    // takes over. Elsewhere in the app react-query's default
+    // no-polling behaviour is unchanged.
+    refetchInterval: (query) => {
+      const pages = query.state.data?.pages ?? []
+      const hasAnyActivity = pages.some((p) => p.tasks.length > 0)
+      return hasAnyActivity ? false : 4000
+    },
   })
   // Only count harnesses that appear on the /mcp screen. Hidden ones
   // (Hermes, OpenClaw, Gemini CLI, retired Claude Desktop) may be
@@ -48,17 +58,7 @@ export function Cockpit() {
   if (state !== 'ready') {
     return (
       <div className="mx-auto flex max-w-7xl flex-col px-8 pt-8 pb-16">
-        <CockpitOnboarding
-          state={state}
-          onRefresh={() => {
-            void queryClient.invalidateQueries({
-              queryKey: useBrowserosConnections.getKey(),
-            })
-            void queryClient.invalidateQueries({
-              queryKey: useTasks.getKey(),
-            })
-          }}
-        />
+        <CockpitOnboarding state={state} />
       </div>
     )
   }

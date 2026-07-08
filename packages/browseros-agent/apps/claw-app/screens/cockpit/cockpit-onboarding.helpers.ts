@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 BrowserOS
+ * Copyright 2026 BrowserOS
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * Pure helpers for the cockpit onboarding block. The Cockpit screen
@@ -35,50 +35,49 @@ export function getOnboardingState({
   return 'first-run'
 }
 
-/** Status labels for the three step badges, per state. */
-export const STEP_KICKERS = {
-  'first-run': ['Next up', 'Then', 'Finally'] as const,
-  waiting: ['Done', 'Now', 'Next'] as const,
+export const HERO_COPY = {
+  eyebrow: 'GET STARTED',
+  h1Prefix: 'You watch. Your agent',
+  h1Accent: 'works.',
+  subhead:
+    'Set up BrowserClaw once. Tell your AI to use it. Everything lands here.',
 } as const
 
-export const HERO_COPY = {
-  eyebrow: 'Get started',
-  h1Prefix: "Let's get your first agent",
-  h1Accent: 'running.',
-  subhead: 'Three steps. About two minutes.',
+export const PRIMARY_ACTION_COPY = {
+  install: {
+    activeLabel: 'Set up MCP endpoint',
+    doneLabel: 'View MCP endpoint',
+    href: '/mcp',
+  },
 } as const
+
+export const WAITING_COPY = {
+  connectedNoActivity:
+    'Waiting for your first run. Come back here as soon as you press enter in your agent.',
+  promptCopied:
+    'Prompt copied. Paste it into Claude Code, Cursor, or Codex, then press enter.',
+} as const
+
+export const STARTER_PROMPT_LABEL =
+  'Paste this into Claude Code, Cursor, or Codex.'
+
+export const STARTER_PROMPT =
+  'Use BrowserClaw. Book me the cheapest morning flight from SFO to NYC next Friday.'
 
 export const STEP_COPY = {
   install: {
-    title: 'Install the MCP.',
-    body: 'One endpoint that connects BrowserClaw to Claude Code, Cursor, Codex, and every harness that speaks MCP.',
+    activeTitle: 'Install BrowserClaw as an MCP.',
     doneTitle: 'MCP installed.',
-    doneBody:
-      'Your endpoint is live. Any agent on your list can now open a browser session.',
-    cta: 'Set up',
-    doneCta: 'View endpoints',
-    href: '/mcp',
   },
   ask: {
-    title: 'Ask your agent to try it.',
-    body: 'Any tool that speaks MCP works. Claude Code, Cursor, Codex. Kick off a task on the web.',
-    terminal: [
-      '$ claude',
-      '> Try BrowserClaw. Book me',
-      '  the cheapest flight to',
-      '  London for next weekend.',
-      '> opening BrowserClaw...',
-    ] as const,
+    title: 'Prompt your agent.',
   },
   watch: {
-    title: 'Watch it happen right here.',
-    body: 'Every tool call, screenshot, and result shows up on this page as your agent works. Rewind any session from the audit view.',
+    title: 'Watch it here.',
   },
 } as const
 
 export const FOOTER_COPY = {
-  refreshQuestion: 'Already set up?',
-  refresh: 'Refresh the page.',
   docs: 'Read the docs',
   docsHref: 'https://docs.browseros.com/',
 } as const
