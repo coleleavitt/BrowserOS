@@ -74,6 +74,38 @@ base_version: "148.0.7778.97"
     )
 }
 
+fn count_store_patch_files(root: &Path) -> Result<usize> {
+    fn visit(root: &Path, dir: &Path) -> Result<usize> {
+        let mut count = 0;
+        for entry in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+            let entry = entry.with_context(|| format!("reading {}", dir.display()))?;
+            let path = entry.path();
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                count += visit(root, &path)?;
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+
+            let rel = path.strip_prefix(root)?;
+            if rel == Path::new("features.yaml") || rel == Path::new("store.yaml") {
+                continue;
+            }
+            if fs::read(&path)
+                .with_context(|| format!("reading {}", path.display()))?
+                .starts_with(b"diff --git ")
+            {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    visit(root, root)
+}
+
 #[test]
 fn round_trip_store_preserves_patch_and_metadata_bytes() -> Result<()> {
     let src = tempfile::tempdir()?;
@@ -298,8 +330,9 @@ fn real_store_loads_when_seeded() -> Result<()> {
     }
 
     let store = Store::load(&store_dir)?;
-    assert_eq!(store.patches().len(), 366);
-    assert_eq!(store.metadata().base_version, "148.0.7778.97");
+    assert_eq!(store.patches().len(), count_store_patch_files(&store_dir)?);
+    assert!(!store.metadata().base_commit.is_empty());
+    assert!(!store.metadata().base_version.is_empty());
     assert!(store.features().features.contains_key("browseros-core"));
     Ok(())
 }

@@ -19,6 +19,14 @@ store = "/Users/shadowfax/code/browseros-project/packages/browseros/chromium_pat
 
 Requirements: Git 2.40 or newer; base-bump conflict sessions use `git merge-tree --write-tree --merge-base`.
 
+Install from this directory:
+
+```console
+$ make install
+```
+
+`make install PREFIX=/usr/local/bin` installs somewhere else; `PREFIX` is the final binary directory.
+
 Daily loop:
 
 ```console
