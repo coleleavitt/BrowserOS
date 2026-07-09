@@ -254,7 +254,6 @@ features:
     description: "feat: first run experience"
     files:
       - chrome/browser/chrome_browser_main.cc
-      - chrome/browser/ui/webui/browseros_welcome.h
       - chrome/browser/ui/webui/chrome_web_ui_configs.cc
       - chrome/common/webui_url_constants.cc
 
