@@ -20,6 +20,8 @@ from ...lib.utils import (
     log_warning,
     IS_MACOS,
     IS_WINDOWS,
+    get_command_secret_values,
+    redact_sensitive_text,
 )
 
 
@@ -273,6 +275,7 @@ def sign_windows_binary(
 
     log_info(f"Signing {binary_path.name}...")
 
+    secret_values: tuple[str, ...] = ()
     try:
         temp_output_dir = binary_path.parent / "signed_temp"
         temp_output_dir.mkdir(exist_ok=True)
@@ -294,6 +297,7 @@ def sign_windows_binary(
             "-override",
         ])
 
+        secret_values = get_command_secret_values(cmd)
         result = subprocess.run(
             " ".join(cmd),
             shell=True,
@@ -303,7 +307,8 @@ def sign_windows_binary(
         )
 
         if result.stdout and "Error:" in result.stdout:
-            log_error(f"Signing failed: {result.stdout}")
+            safe_output = redact_sensitive_text(result.stdout, secret_values)
+            log_error(f"Signing failed: {safe_output}")
             return False
 
         signed_file = temp_output_dir / binary_path.name
@@ -333,7 +338,8 @@ def sign_windows_binary(
         return True
 
     except Exception as e:
-        log_error(f"Signing failed: {e}")
+        safe_error = redact_sensitive_text(str(e), secret_values)
+        log_error(f"Signing failed: {safe_error}")
         return False
 
 

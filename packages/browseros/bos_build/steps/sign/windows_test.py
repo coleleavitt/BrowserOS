@@ -19,8 +19,6 @@ from .windows import (
     get_missing_required_browseros_server_binary_paths,
     sign_with_codesigntool,
 )
-
-
 class WindowsSignPathsTest(unittest.TestCase):
     def test_browseros_and_claw_server_binaries_are_expected_for_signing(self):
         build_output_dir = Path("/tmp/out/Default")

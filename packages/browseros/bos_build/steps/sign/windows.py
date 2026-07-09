@@ -19,6 +19,9 @@ from ...lib.utils import (
     log_warning,
     join_paths,
     IS_WINDOWS,
+    get_command_secret_values,
+    redact_command,
+    redact_sensitive_text,
 )
 
 
@@ -177,21 +180,6 @@ def _codesigntool_command_prefix(codesigntool_path: Path) -> List[str]:
     return [str(codesigntool_path)]
 
 
-def _redact_codesigntool_secrets(text: str, env: EnvConfig) -> str:
-    secrets = [
-        env.esigner_password,
-        env.esigner_totp_secret,
-        env.esigner_credential_id,
-    ]
-    for secret in sorted((secret for secret in secrets if secret), key=len, reverse=True):
-        text = text.replace(secret, "***")
-    return text
-
-
-def _format_redacted_command(cmd: List[str], env: EnvConfig) -> str:
-    return _redact_codesigntool_secrets(" ".join(cmd), env)
-
-
 def sign_with_codesigntool(
     binaries: List[Path],
     env: Optional[EnvConfig] = None,
@@ -233,6 +221,7 @@ def sign_with_codesigntool(
 
     all_success = True
     for binary in binaries:
+        secret_values: tuple[str, ...] = ()
         try:
             log_info(f"Signing {binary.name}...")
 
@@ -262,7 +251,8 @@ def sign_with_codesigntool(
                 ]
             )
 
-            log_info(f"Running: {_format_redacted_command(cmd, env)}")
+            secret_values = get_command_secret_values(cmd)
+            log_info(f"Running: {redact_command(cmd)}")
 
             result = subprocess.run(
                 cmd,
@@ -275,11 +265,11 @@ def sign_with_codesigntool(
             if result.stdout:
                 for line in result.stdout.split("\n"):
                     if line.strip():
-                        log_info(_redact_codesigntool_secrets(line.strip(), env))
+                        log_info(redact_sensitive_text(line.strip(), secret_values))
             if result.stderr:
                 for line in result.stderr.split("\n"):
                     if line.strip() and "WARNING" not in line:
-                        log_error(_redact_codesigntool_secrets(line.strip(), env))
+                        log_error(redact_sensitive_text(line.strip(), secret_values))
 
             if result.stdout and "Error:" in result.stdout:
                 log_error(
@@ -319,8 +309,8 @@ def sign_with_codesigntool(
                 log_warning(f"Could not verify signature for {binary.name}")
 
         except Exception as e:
-            error = _redact_codesigntool_secrets(str(e), env)
-            log_error(f"Failed to sign {binary.name}: {error}")
+            safe_error = redact_sensitive_text(str(e), secret_values)
+            log_error(f"Failed to sign {binary.name}: {safe_error}")
             all_success = False
 
     return all_success
