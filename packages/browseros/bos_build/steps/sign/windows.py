@@ -76,10 +76,10 @@ class WindowsSignModule(Step):
     def _sign_executables(self, build_output_dir: Path, ctx: Context) -> None:
         log_info("\nStep 1/3: Signing executables before packaging...")
         env = ctx.env
-        binaries_to_sign_first = [build_output_dir / "chrome.exe"]
-        binaries_to_sign_first.extend(
-            get_existing_browseros_server_binary_paths(build_output_dir, ctx.product.id)
-        )
+        chrome_path = build_output_dir / "chrome.exe"
+        if not chrome_path.exists():
+            raise RuntimeError(f"Missing primary browser executable: {chrome_path}")
+
         missing = get_missing_required_browseros_server_binary_paths(
             build_output_dir, ctx.product.id
         )
@@ -89,18 +89,14 @@ class WindowsSignModule(Step):
                 + ", ".join(str(path) for path in missing)
             )
 
-        existing_binaries = []
-        for binary in binaries_to_sign_first:
-            if binary.exists():
-                existing_binaries.append(binary)
-                log_info(f"Found binary to sign: {binary.name}")
-            else:
-                log_warning(f"Binary not found: {binary}")
+        binaries_to_sign = [chrome_path]
+        binaries_to_sign.extend(
+            get_existing_browseros_server_binary_paths(build_output_dir, ctx.product.id)
+        )
+        for binary in binaries_to_sign:
+            log_info(f"Found binary to sign: {binary.name}")
 
-        if not existing_binaries:
-            raise RuntimeError("No binaries found to sign")
-
-        if not sign_with_codesigntool(existing_binaries, env):
+        if not sign_with_codesigntool(binaries_to_sign, env):
             raise RuntimeError("Failed to sign executables")
 
     def _build_mini_installer(self, ctx: Context) -> None:

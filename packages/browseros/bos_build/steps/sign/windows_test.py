@@ -109,6 +109,27 @@ class WindowsSignPathsTest(unittest.TestCase):
                     build_output_dir, self._ctx("browseros")
                 )
 
+    def test_missing_chrome_is_fatal_for_each_product(self):
+        for product_id in ("browseros", "browserclaw"):
+            with self.subTest(product=product_id), TemporaryDirectory() as tmp:
+                build_output_dir = Path(tmp)
+                for binary in get_browseros_server_binary_paths(
+                    build_output_dir, product_id
+                ):
+                    self._write_binary(binary)
+
+                with mock.patch(
+                    "bos_build.steps.sign.windows.sign_with_codesigntool"
+                ) as sign:
+                    with self.assertRaisesRegex(
+                        RuntimeError, "Missing primary browser executable:.*chrome.exe"
+                    ):
+                        WindowsSignModule()._sign_executables(
+                            build_output_dir, self._ctx(product_id)
+                        )
+
+                sign.assert_not_called()
+
     def test_browserclaw_requires_claw_binary(self):
         with TemporaryDirectory() as tmp:
             build_output_dir = Path(tmp)

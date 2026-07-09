@@ -242,6 +242,24 @@ class DebugGoldenTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not supported for debug"):
             plan_runs(Switches(preset="debug", architectures=("universal",)), "macos")
 
+    def test_debug_windows_builds_installer_before_packaging(self):
+        self.assertEqual(
+            plan(Switches(preset="debug"), "x64", "windows"),
+            [
+                "git_setup",
+                "winsparkle_setup",
+                "download_resources",
+                "resources",
+                "chromium_replace",
+                "string_replaces",
+                "patches",
+                "configure",
+                "compile",
+                "mini_installer",
+                "package_windows",
+            ],
+        )
+
     def test_debug_rejection_wins_over_platform(self):
         with self.assertRaisesRegex(ValueError, "not supported for debug"):
             plan_runs(Switches(preset="debug", architectures=("universal",)), "linux")
