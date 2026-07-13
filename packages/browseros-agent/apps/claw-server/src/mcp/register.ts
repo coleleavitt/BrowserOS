@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * Wires every browser tool from `@browseros/browser-mcp`'s catalogue onto
- * a per-agent MCP server. Each dispatch:
+ * the shared MCP server. Each dispatch:
  *
  *   1. Applies the hard navigate URL-scheme guard.
  *   2. Looks up the live BrowserSession; if not yet wired, returns
@@ -32,7 +32,6 @@ import {
   TOOLS_WITH_PAGE,
   tabActivityRegistry,
 } from '../lib/tab-activity'
-import type { StoredAgentProfile } from '../routes/agents/schemas'
 import { recordToolDispatch } from '../services/audit-log'
 import {
   CANCELLATION_REASON,
@@ -57,111 +56,6 @@ import {
 const NAVIGATE_BLOCKED_SCHEMES = new Set(['javascript:', 'file:', 'data:'])
 
 const ARBITRARY_SCRIPT_TOOLS = new Set(['run', 'evaluate'])
-
-/**
- * Records a successful dispatch into the tab-activity registry. The
- * homepage attributes the tab to the agent and surfaces the latest
- * tool name. Failed dispatches and tools without a `page` arg are
- * skipped at the call site by `extractPageId` returning `null`.
- */
-function recordSuccessfulDispatch(args: {
-  toolName: string
-  rawArgs: unknown
-  agent: StoredAgentProfile
-  session: ReturnType<typeof getBrowserSession>
-}): void {
-  if (!args.session) return
-  const pageId = extractPageId(args.toolName, args.rawArgs)
-  if (pageId === null) return
-  const live = args.session.pages.getInfo(pageId)
-  if (!live) return
-  tabActivityRegistry.recordTool({
-    agentId: args.agent.id,
-    slug: args.agent.slug,
-    pageId,
-    targetId: live.targetId,
-    toolName: args.toolName,
-  })
-}
-
-export function registerBrowserTools(
-  server: McpServer,
-  agent: StoredAgentProfile,
-): void {
-  const register = asRegister(server)
-  for (const tool of BROWSER_TOOLS) {
-    register(
-      tool.name,
-      {
-        description: tool.description,
-        // The tool's zod shape is v3 (apps/server's pin); our SDK
-        // wrapper is typed against v4. Runtime is compatible — both
-        // produce equivalent JSON Schema for the shapes in use here.
-        // Cast at the boundary keeps the mismatch isolated.
-        inputSchema: tool.input.shape as unknown as ZodRawShape,
-        ...(tool.annotations && {
-          annotations: tool.annotations as Record<string, unknown>,
-        }),
-      },
-      async (rawArgs, extra) => {
-        if (tool.name === 'navigate') {
-          const url = (rawArgs as { url?: unknown } | null | undefined)?.url
-          if (typeof url === 'string' && url.length > 0) {
-            const scheme = url.slice(0, url.indexOf(':') + 1).toLowerCase()
-            if (NAVIGATE_BLOCKED_SCHEMES.has(scheme)) {
-              return {
-                content: [
-                  {
-                    type: 'text',
-                    text: `navigate refuses ${scheme} URLs; only http(s) is allowed`,
-                  },
-                ],
-                isError: true,
-              } satisfies ToolResult
-            }
-          }
-        }
-
-        const session = getBrowserSession()
-        if (!session) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: 'browser session not connected; the cockpit runtime has not been wired to a live Chromium yet',
-              },
-            ],
-            isError: true,
-          } satisfies ToolResult
-        }
-
-        if (ARBITRARY_SCRIPT_TOOLS.has(tool.name)) {
-          logger.warn('cockpit dispatched arbitrary-script tool', {
-            tool: tool.name,
-            agentId: agent.id,
-          })
-        }
-        const result = await executeTool(tool, rawArgs, {
-          session,
-          signal: extra?.signal,
-        })
-        if (!result.isError) {
-          recordSuccessfulDispatch({
-            toolName: tool.name,
-            rawArgs,
-            agent,
-            session,
-          })
-        }
-        return {
-          content: result.content,
-          isError: result.isError,
-          structuredContent: result.structuredContent,
-        }
-      },
-    )
-  }
-}
 
 /**
  * Combine zero or more AbortSignals into one. Returns:
@@ -207,13 +101,11 @@ function dispatchErrorText(content: unknown): string | null {
 }
 
 /**
- * v2 dispatch record helper. The single MCP endpoint does not know
- * which `StoredAgentProfile` produced the call, so the registry write
- * sources its identity from the per-session `ClientIdentity` instead.
- * The shape matches the legacy `recordSuccessfulDispatch` so the
- * homepage / rollup / trail wiring stays unchanged.
+ * Records a successful dispatch into the tab-activity registry using
+ * the per-session client identity. Failed dispatches and tools without
+ * a `page` arg are skipped at the call site by `extractPageId`.
  */
-function recordSuccessfulDispatchV2(args: {
+function recordSuccessfulDispatch(args: {
   toolName: string
   rawArgs: unknown
   identity: ClientIdentity
@@ -470,7 +362,7 @@ export function registerBrowserToolsForSingleServer(
         if (!result.isError) {
           const identity = resolveIdentity(extra?.sessionId)
           if (identity) {
-            recordSuccessfulDispatchV2({
+            recordSuccessfulDispatch({
               toolName: tool.name,
               rawArgs,
               identity,
@@ -550,7 +442,7 @@ export function registerBrowserToolsForSingleServer(
                   const { agentId, slug } = agentIdentityFromClient(identity)
                   // tabs new carries no `page` field in its input
                   // args; the page id is born in the dispatch result.
-                  // recordSuccessfulDispatchV2 above therefore
+                  // recordSuccessfulDispatch above therefore
                   // skipped the registry write (extractPageId
                   // returned null). Record here using the result-
                   // derived pageId so /tabs/activity reflects the

@@ -84,8 +84,8 @@ async function start(): Promise<void> {
 
   // Attach to the BrowserOS Chromium so MCP `tools/call` dispatches
   // hit a real browser. The bootstrap soft-fails when BrowserOS is
-  // not reachable: the cockpit keeps serving the UI, profile CRUD,
-  // harness installs, and `tools/list`, and `tools/call` continues
+  // not reachable: the cockpit keeps serving the UI, connection
+  // routes, and `tools/list`, and `tools/call` continues
   // to short-circuit with the existing "session not connected"
   // wire shape until the user restarts the cockpit with BrowserOS
   // up. Reattach on transient drops is the CdpBackend's job (we
@@ -123,10 +123,9 @@ async function start(): Promise<void> {
     process.once('SIGTERM', cleanup)
   }
 
-  // Self-heal loop 2: rewrite every managed MCP spec whose URL no
-  // longer matches the current public URL (proxy or bind port bump
-  // between runs) and update stored profile JSON to match. Covers
-  // per-profile installs AND the shared BrowserClaw entry.
+  // Self-heal loop 2: rewrite the shared BrowserClaw MCP spec when
+  // its URL no longer matches the current public URL (proxy or bind
+  // port bump between runs).
   try {
     const migration = await migrateMcpUrls(publicMcpUrl())
     logger.info('mcpUrl migration finished', { ...migration })
