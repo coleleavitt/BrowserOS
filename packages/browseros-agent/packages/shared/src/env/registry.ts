@@ -271,7 +271,7 @@ export const ENV_REGISTRY: readonly EnvKeySpec[] = [
     description: 'Headless browser setting for local server tests.',
     secret: false,
     schema: stringSchema,
-    modes: { development: { value: 'false' } },
+    modes: { development: { value: 'true' } },
   },
   {
     key: 'AGENT_RUNNER_JWT_SECRET',
