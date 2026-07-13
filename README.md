@@ -145,7 +145,6 @@ BrowserOS/
 │   │   ├── server/                  # MCP server + AI agent loop (Bun)
 │   │   ├── app/                     # Browser extension UI (WXT + React)
 │   │   ├── cli/                     # CLI tool (Go)
-│   │   ├── eval/                    # Benchmark framework
 │   │   └── controller-ext/          # Chrome API bridge extension
 │   │
 │   └── packages/
@@ -160,7 +159,6 @@ BrowserOS/
 | [`apps/server`](packages/browseros-agent/apps/server/) | Bun server exposing 53+ MCP tools and running the AI agent loop |
 | [`apps/app`](packages/browseros-agent/apps/app/) | Browser extension — new tab, side panel chat, onboarding, settings |
 | [`apps/cli`](packages/browseros-agent/apps/cli/) | Go CLI — control BrowserOS from the terminal or AI coding agents |
-| [`apps/eval`](packages/browseros-agent/apps/eval/) | Benchmark framework — WebVoyager, Mind2Web evaluation |
 | [`agent-sdk`](packages/browseros-agent/packages/agent-sdk/) | Node.js SDK for browser automation with natural language |
 | [`cdp-protocol`](packages/browseros-agent/packages/cdp-protocol/) | Type-safe Chrome DevTools Protocol bindings |
 
