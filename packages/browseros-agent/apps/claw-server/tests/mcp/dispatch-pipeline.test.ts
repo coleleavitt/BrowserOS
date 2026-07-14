@@ -16,7 +16,6 @@ function call(args: Record<string, unknown>): ToolCall {
     tool: navigateTool,
     args,
     sessionId: '',
-    requestId: undefined,
     identity: null,
     key: null,
     agent: null,

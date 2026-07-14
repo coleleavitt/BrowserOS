@@ -4,44 +4,37 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { logger } from '../../lib/logger'
-import type { ToolEffect } from '../dispatch'
 import {
-  maybeRequestSessionNaming,
-  type SessionNamingServer,
-} from '../session-naming'
+  buildSessionGroupTitle,
+  clientPrefixFromSlug,
+} from '../../lib/mcp-session'
+import type { ToolEffect } from '../dispatch'
 
-/** Starts naming while the first successful tabs-new response stream is open. */
-export function createSessionNamingEffect(
-  server: SessionNamingServer,
-): ToolEffect {
-  let warnedMissingRequestId = false
+/** Nudges the agent after its first successful tabs-new call. */
+export function createSessionNamingEffect(): ToolEffect {
+  let sawSuccessfulTabsNew = false
 
   return ({ call, result }) => {
-    if (result.isError || !call.flags.newPage) return undefined
-    if (
-      typeof call.requestId !== 'string' &&
-      typeof call.requestId !== 'number'
-    ) {
-      if (!warnedMissingRequestId) {
-        warnedMissingRequestId = true
-        logger.warn('mcp session naming request id unavailable', {
-          sessionId: call.sessionId,
-        })
-      }
+    if (result.isError || !call.flags.newPage || sawSuccessfulTabsNew) {
       return undefined
     }
+    sawSuccessfulTabsNew = true
+    const identity = call.identity
+    if (!identity || identity.label !== identity.generatedLabel)
+      return undefined
 
-    void maybeRequestSessionNaming({
-      server,
-      sessionId: call.sessionId,
-      requestId: call.requestId,
-    }).catch((error) => {
-      logger.warn('mcp session naming failed unexpectedly', {
-        sessionId: call.sessionId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+    const title = buildSessionGroupTitle(
+      clientPrefixFromSlug(identity.slug),
+      identity.label,
+    )
+    const tip = `Tip: this session is "${title}" — rename it with name_session name="<2-3 word task label>"`
+    let appended = false
+    const content = result.content.map((item) => {
+      if (appended || item.type !== 'text') return item
+      appended = true
+      return { ...item, text: `${item.text}\n${tip}` }
     })
-    return undefined
+    if (!appended) content.push({ type: 'text', text: tip })
+    return { ...result, content }
   }
 }
