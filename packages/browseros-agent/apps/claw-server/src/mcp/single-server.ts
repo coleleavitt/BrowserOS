@@ -137,7 +137,7 @@ function buildSession(): Session {
       clientName: identity.clientName,
       clientVersion: identity.clientVersion,
     })
-    logger.info('cockpit v2 mcp session opened', {
+    logger.info('cockpit mcp session opened', {
       sessionId,
       clientName: clientInfo?.name ?? '',
     })
@@ -205,7 +205,7 @@ function cleanupSessionState(sessionId: string): void {
       if (usesFallbackKey) ownershipStore.forget(key)
     }
   }
-  logger.info('cockpit v2 mcp session closed', { sessionId })
+  logger.info('cockpit mcp session closed', { sessionId })
 }
 
 /**

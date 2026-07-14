@@ -28,7 +28,7 @@ export const guardPageOwnership: ToolGuard = (call) => {
   // `tabs new`. This fires before executeTool; unknown identities fail open.
   if (ownershipStore.pagesOf(call.key).has(page)) return null
 
-  logger.warn('cockpit v2 rejected foreign-page dispatch', {
+  logger.warn('cockpit rejected foreign-page dispatch', {
     tool: call.tool.name,
     sessionId: call.sessionId || undefined,
     key: call.key,

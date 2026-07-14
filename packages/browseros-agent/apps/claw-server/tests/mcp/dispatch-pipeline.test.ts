@@ -74,7 +74,7 @@ describe('dispatch pipeline', () => {
     expect(returned).toBe(result)
     expect(warnings).toEqual([
       {
-        message: 'cockpit v2 tool dispatch effect failed',
+        message: 'cockpit tool dispatch effect failed',
         fields: {
           tool: 'navigate',
           sessionId: undefined,

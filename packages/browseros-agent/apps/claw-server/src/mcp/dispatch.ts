@@ -112,7 +112,7 @@ export function runEffects(
     try {
       result = effect.run({ ...context, result }) ?? result
     } catch (error) {
-      warn('cockpit v2 tool dispatch effect failed', {
+      warn('cockpit tool dispatch effect failed', {
         tool: context.call.tool.name,
         sessionId: context.call.sessionId || undefined,
         effect: effect.name,
@@ -222,7 +222,7 @@ async function dispatchToolCall(
   const connectedCall = call as ConnectedToolCall
 
   if (ARBITRARY_SCRIPT_TOOLS.has(call.tool.name)) {
-    logger.warn('cockpit v2 dispatched arbitrary-script tool', {
+    logger.warn('cockpit dispatched arbitrary-script tool', {
       tool: call.tool.name,
       sessionId: call.sessionId || undefined,
     })
@@ -230,7 +230,7 @@ async function dispatchToolCall(
 
   const outcome = await executeWithCancellation(connectedCall)
   if (outcome.result.isError && !outcome.cancelled) {
-    logger.warn('cockpit v2 tool dispatch failed', {
+    logger.warn('cockpit tool dispatch failed', {
       tool: call.tool.name,
       sessionId: call.sessionId || undefined,
       durationMs: outcome.durationMs,
@@ -298,10 +298,10 @@ function logThrownDispatch(
     durationMs: Date.now() - dispatchStart,
   }
   if (call.signal?.aborted) {
-    logger.info('cockpit v2 tool dispatch cancelled by client', fields)
+    logger.info('cockpit tool dispatch cancelled by client', fields)
     return
   }
-  logger.error('cockpit v2 tool dispatch threw', {
+  logger.error('cockpit tool dispatch threw', {
     ...fields,
     error: error instanceof Error ? error.message : String(error),
   })
