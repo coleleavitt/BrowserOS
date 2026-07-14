@@ -23,6 +23,11 @@ on:
         required: false
         type: string
         default: ""
+      github_release:
+        description: "Create or update the GitHub release and attach built CRXs"
+        required: false
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       version:
@@ -39,6 +44,11 @@ on:
         required: false
         type: string
         default: ""
+      github_release:
+        description: "Create or update the GitHub release and attach built CRXs"
+        required: false
+        type: boolean
+        default: false
     secrets:
       GH_TOKEN:
         required: false
@@ -86,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -160,6 +170,70 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           uv run browseros ext release "${args[@]}"
+
+      - name: Create GitHub release
+        if: ${{ inputs.github_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          EXTENSION: ${{ inputs.extension }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_TAG="extensions/v$VERSION"
+          TITLE="Extensions - v$VERSION"
+          NOTES_FILE="/tmp/extension-release-notes.md"
+          ASSET_DIR="packages/browseros/build/extensions/dist"
+          mapfile -t crx_assets < <(find "$ASSET_DIR" -maxdepth 1 -type f -name '*.crx' | sort)
+          if [ "${#crx_assets[@]}" -eq 0 ]; then
+            echo "::error::No CRX assets found in $ASSET_DIR"
+            exit 1
+          fi
+
+          {
+            echo "# $TITLE"
+            echo
+            echo "- Extension selection: \`$EXTENSION\`"
+            echo "- Version: \`$VERSION\`"
+            echo
+            echo "## CRX downloads"
+            for crx in "${crx_assets[@]}"; do
+              filename=$(basename "$crx")
+              echo "- [\`$filename\`](https://cdn.browseros.com/extensions/$filename)"
+            done
+          } > "$NOTES_FILE"
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE"
+          else
+            TARGET_SHA=$(git rev-parse HEAD)
+            gh release create "$RELEASE_TAG" \
+              --target "$TARGET_SHA" \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE"
+          fi
+
+          if [ "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = "true" ]; then
+            gh release edit "$RELEASE_TAG" --draft=false
+          fi
+
+      - name: Attach CRXs to GitHub release
+        if: ${{ inputs.github_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="extensions/v$VERSION"
+          ASSET_DIR="packages/browseros/build/extensions/dist"
+          mapfile -t crx_assets < <(find "$ASSET_DIR" -maxdepth 1 -type f -name '*.crx' | sort)
+          if [ "${#crx_assets[@]}" -eq 0 ]; then
+            echo "::error::No CRX assets found in $ASSET_DIR"
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${crx_assets[@]}" --clobber
 
       - name: Upload CRX artifacts
         if: always()
