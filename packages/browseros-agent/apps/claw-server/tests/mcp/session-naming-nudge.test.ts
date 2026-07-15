@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import type { ClientIdentity } from '../../src/lib/mcp-session'
-import type { ToolCall } from '../../src/mcp/dispatch'
+import type { ToolCall, ToolEffect } from '../../src/mcp/dispatch'
 import { createSessionNamingEffect } from '../../src/mcp/effects/session-naming'
+import type { ToolResult } from '../../src/mcp/register-fn'
+
+const tip =
+  'Tip: this session is "claude/swift-otter" — rename it with name_session name="<2-3 word task label>"'
 
 function identity(label = 'swift-otter'): ClientIdentity {
   return {
@@ -17,10 +21,10 @@ function identity(label = 'swift-otter'): ClientIdentity {
   }
 }
 
-function call(value: ClientIdentity): ToolCall {
+function call(value: ClientIdentity, toolName = 'snapshot'): ToolCall {
   return {
-    tool: { name: 'tabs' } as never,
-    args: { action: 'new' },
+    tool: { name: toolName } as never,
+    args: {},
     sessionId: value.sessionId,
     identity: value,
     key: value.key,
@@ -28,96 +32,94 @@ function call(value: ClientIdentity): ToolCall {
     agentLabel: value.clientName,
     session: {} as never,
     defaultTabGroupId: null,
-    flags: { newPage: true, closePage: false, listTabs: false },
+    flags: { newPage: false, closePage: false, listTabs: false },
   }
 }
 
-const ok = {
-  content: [{ type: 'text' as const, text: 'opened page 7' }],
+const ok: ToolResult = {
+  content: [{ type: 'text', text: 'tool result' }],
   isError: false,
 }
 
+function apply(
+  effect: ToolEffect,
+  toolCall: ToolCall,
+  result: ToolResult = ok,
+): ToolResult | undefined {
+  return effect({ call: toolCall, result, cancelled: false, durationMs: 1 })
+}
+
 describe('session naming nudge', () => {
-  it('appends the prescribed tip to the first successful tabs new', () => {
+  it('appends the prescribed tip to successive arbitrary tool results', () => {
     const effect = createSessionNamingEffect()
-    const result = effect({
-      call: call(identity()),
-      result: ok,
-      cancelled: false,
-      durationMs: 1,
-    })
+    const value = identity()
 
-    expect(result?.content).toEqual([
-      {
-        type: 'text',
-        text: 'opened page 7\nTip: this session is "claude/swift-otter" — rename it with name_session name="<2-3 word task label>"',
-      },
+    expect(apply(effect, call(value, 'snapshot'))?.content).toEqual([
+      { type: 'text', text: `tool result\n${tip}` },
     ])
-
-    expect(
-      effect({
-        call: call(identity()),
-        result: ok,
-        cancelled: false,
-        durationMs: 1,
-      }),
-    ).toBeUndefined()
+    expect(apply(effect, call(value, 'read'))?.content).toEqual([
+      { type: 'text', text: `tool result\n${tip}` },
+    ])
   })
 
-  it('consumes the first successful tabs new without nudging after rename', () => {
+  it('appends exactly five nudges then stays silent', () => {
     const effect = createSessionNamingEffect()
-    const renamed = identity('invoice-processing')
+    const toolCall = call(identity(), 'tabs')
 
-    expect(
-      effect({
-        call: call(renamed),
-        result: ok,
-        cancelled: false,
-        durationMs: 1,
-      }),
-    ).toBeUndefined()
-
-    renamed.label = renamed.generatedLabel
-    expect(
-      effect({
-        call: call(renamed),
-        result: ok,
-        cancelled: false,
-        durationMs: 1,
-      }),
-    ).toBeUndefined()
+    for (let index = 0; index < 5; index += 1) {
+      expect(apply(effect, toolCall)?.content[0]).toEqual({
+        type: 'text',
+        text: `tool result\n${tip}`,
+      })
+    }
+    expect(apply(effect, toolCall)).toBeUndefined()
   })
 
-  it('does not consume the nudge on an error or a non-new call', () => {
+  it('stops immediately after the session is renamed', () => {
     const effect = createSessionNamingEffect()
+    const value = identity()
+
+    expect(apply(effect, call(value))).toBeDefined()
+    value.label = 'invoice-processing'
+    expect(apply(effect, call(value))).toBeUndefined()
+  })
+
+  it('skips errors and name_session without consuming nudges', () => {
+    const effect = createSessionNamingEffect()
+    const value = identity()
+    const toolCall = call(value)
+
+    expect(apply(effect, toolCall, { ...ok, isError: true })).toBeUndefined()
+    expect(apply(effect, call(value, 'name_session'))).toBeUndefined()
+
+    for (let index = 0; index < 5; index += 1) {
+      expect(apply(effect, toolCall)).toBeDefined()
+    }
+    expect(apply(effect, toolCall)).toBeUndefined()
+  })
+
+  it('pushes the tip when the result has no text item', () => {
+    const effect = createSessionNamingEffect()
+    const image = { type: 'image' as const, data: 'AAA', mimeType: 'image/png' }
+
+    expect(
+      apply(effect, call(identity(), 'screenshot'), {
+        content: [image],
+        isError: false,
+      })?.content,
+    ).toEqual([image, { type: 'text', text: tip }])
+  })
+
+  it('keeps independent counters for separate effect instances', () => {
+    const first = createSessionNamingEffect()
+    const second = createSessionNamingEffect()
     const toolCall = call(identity())
 
-    expect(
-      effect({
-        call: toolCall,
-        result: { ...ok, isError: true },
-        cancelled: false,
-        durationMs: 1,
-      }),
-    ).toBeUndefined()
-    toolCall.flags.newPage = false
-    expect(
-      effect({
-        call: toolCall,
-        result: ok,
-        cancelled: false,
-        durationMs: 1,
-      }),
-    ).toBeUndefined()
-
-    toolCall.flags.newPage = true
-    expect(
-      effect({
-        call: toolCall,
-        result: ok,
-        cancelled: false,
-        durationMs: 1,
-      })?.content[0],
-    ).toMatchObject({ text: expect.stringContaining('Tip: this session is') })
+    for (let index = 0; index < 5; index += 1) {
+      expect(apply(first, toolCall)).toBeDefined()
+      expect(apply(second, toolCall)).toBeDefined()
+    }
+    expect(apply(first, toolCall)).toBeUndefined()
+    expect(apply(second, toolCall)).toBeUndefined()
   })
 })

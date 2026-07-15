@@ -73,6 +73,13 @@ function ok(structured?: unknown): FakeResult {
   }
 }
 
+function expectNudgedText(text: string | undefined, expected: string): void {
+  expect(text).toStartWith(`${expected}\nTip: this session is "claude/`)
+  expect(text).toEndWith(
+    ' — rename it with name_session name="<2-3 word task label>"',
+  )
+}
+
 async function waitFor(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (predicate()) return
@@ -232,7 +239,10 @@ describe('per-agent tabs isolation', () => {
     })
 
     expect(result.structuredContent).toBeUndefined()
-    expect(result.content).toEqual([{ type: 'text', text: 'ok\nreturn: 42' }])
+    expectNudgedText(
+      (result.content as Array<{ type: string; text?: string }>)[0]?.text,
+      'ok\nreturn: 42',
+    )
     await client.close()
   })
 
@@ -444,9 +454,10 @@ describe('per-agent tabs isolation', () => {
       arguments: { action: 'list' },
     })) as TabsListResult
     expect(list.structuredContent).toBeUndefined()
-    expect(
+    expectNudgedText(
       (list.content as Array<{ type: string; text?: string }>)?.[0]?.text,
-    ).toBe('(no open pages)')
+      '(no open pages)',
+    )
     await client.close()
   })
 

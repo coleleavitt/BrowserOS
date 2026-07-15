@@ -10,18 +10,24 @@ import {
 } from '../../lib/mcp-session'
 import type { ToolEffect } from '../dispatch'
 
-/** Nudges the agent after its first successful tabs-new call. */
+const SESSION_NAME_NUDGE_LIMIT = 5
+
+/** Appends bounded rename nudges while the session keeps its generated label. */
 export function createSessionNamingEffect(): ToolEffect {
-  let sawSuccessfulTabsNew = false
+  let remaining = SESSION_NAME_NUDGE_LIMIT
 
   return ({ call, result }) => {
-    if (result.isError || !call.flags.newPage || sawSuccessfulTabsNew) {
+    const identity = call.identity
+    if (
+      result.isError ||
+      call.tool.name === 'name_session' ||
+      !identity ||
+      identity.label !== identity.generatedLabel ||
+      remaining === 0
+    ) {
       return undefined
     }
-    sawSuccessfulTabsNew = true
-    const identity = call.identity
-    if (!identity || identity.label !== identity.generatedLabel)
-      return undefined
+    remaining -= 1
 
     const title = buildSessionGroupTitle(
       clientPrefixFromSlug(identity.slug),
