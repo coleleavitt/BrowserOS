@@ -33,7 +33,7 @@ pub struct TelemetryService {
 impl TelemetryService {
     /// Creates persisted telemetry state using the TS-compatible environment gates.
     #[must_use]
-    pub fn new(claw_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(browserclaw_dir: impl Into<PathBuf>) -> Self {
         let posthog_key_configured = env::var("CLAW_POSTHOG_KEY")
             .ok()
             .is_some_and(|value| !value.trim().is_empty());
@@ -41,7 +41,7 @@ impl TelemetryService {
             !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false")
         });
         Self {
-            path: claw_dir.into().join(ANALYTICS_FILE),
+            path: browserclaw_dir.into().join(ANALYTICS_FILE),
             analytics_configured: posthog_key_configured && env_enabled,
             state: Mutex::new(None),
         }

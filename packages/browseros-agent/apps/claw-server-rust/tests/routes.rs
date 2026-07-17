@@ -49,8 +49,7 @@ async fn test_app_with_options(
         cdp_port,
         proxy_port: None,
         resources_dir: dir.path().join("resources"),
-        browserclaw_dir: root.clone(),
-        claw_dir: root,
+        browserclaw_dir: root,
         session_idle: Duration::from_secs(300),
         session_sweep_interval: Duration::from_secs(60),
         screencast_screenshot_fallback,
@@ -935,7 +934,7 @@ async fn cancel_endpoint_aborts_in_flight_dispatch() -> anyhow::Result<()> {
 #[tokio::test]
 async fn tabs_activity_enriches_by_agent_id_only() -> anyhow::Result<()> {
     let app = test_app().await?;
-    let agents_dir = app.state.config.claw_dir.join("agents");
+    let agents_dir = app.state.config.browserclaw_dir.join("agents");
     tokio::fs::create_dir_all(&agents_dir).await?;
     tokio::fs::write(
         agents_dir.join("stored-agent.json"),

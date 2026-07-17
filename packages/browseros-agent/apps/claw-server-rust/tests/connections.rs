@@ -51,8 +51,8 @@ async fn run_connections_case() -> anyhow::Result<()> {
     let home = env::var_os(TEST_HOME)
         .map(std::path::PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("missing test home"))?;
-    let claw_dir = home.join("claw");
-    let service = HarnessService::new(claw_dir.join("mcp-manager"), home.clone());
+    let browserclaw_dir = home.join("claw");
+    let service = HarnessService::new(browserclaw_dir.join("mcp-manager"), home.clone());
     let paths = config_paths()?;
 
     for (agent, path) in &paths {
@@ -134,7 +134,7 @@ async fn run_connections_case() -> anyhow::Result<()> {
     );
 
     let manifest: Value = serde_json::from_str(&fs::read_to_string(
-        claw_dir.join("mcp-manager/manifest.json"),
+        browserclaw_dir.join("mcp-manager/manifest.json"),
     )?)?;
     assert_eq!(manifest["version"], 1);
     assert_eq!(
@@ -180,7 +180,7 @@ async fn run_connections_case() -> anyhow::Result<()> {
     assert!(!codex.installed);
     assert_eq!(codex.message, "Codex is not configured.");
 
-    let router = test_router(&claw_dir, &home).await?;
+    let router = test_router(&browserclaw_dir, &home).await?;
     let (status, listed) = request_json(&router, "GET", "/connections").await?;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(listed["connections"].as_array().map(Vec::len), Some(7));
@@ -198,7 +198,7 @@ async fn run_connections_case() -> anyhow::Result<()> {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(disconnected["installed"], false);
 
-    let custom_workspace = claw_dir.join("custom-mcp-manager");
+    let custom_workspace = browserclaw_dir.join("custom-mcp-manager");
     let custom_config = home.join("custom/cursor.json");
     fs::create_dir_all(parent(&custom_config)?)?;
     let custom_manager = Manager::new(&custom_workspace);
@@ -290,14 +290,13 @@ async fn assert_legacy_manifest_migration(
     Ok(())
 }
 
-async fn test_router(claw_dir: &Path, home: &Path) -> anyhow::Result<Router> {
+async fn test_router(browserclaw_dir: &Path, home: &Path) -> anyhow::Result<Router> {
     let config = Arc::new(Config {
         server_port: 9200,
         cdp_port: 49337,
         proxy_port: None,
-        resources_dir: claw_dir.join("resources"),
-        browserclaw_dir: claw_dir.to_path_buf(),
-        claw_dir: claw_dir.to_path_buf(),
+        resources_dir: browserclaw_dir.join("resources"),
+        browserclaw_dir: browserclaw_dir.to_path_buf(),
         session_idle: Duration::from_secs(300),
         session_sweep_interval: Duration::from_secs(60),
         screencast_screenshot_fallback: true,

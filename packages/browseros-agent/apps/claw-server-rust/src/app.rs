@@ -47,20 +47,23 @@ impl AppState {
         shutdown_tx: Option<oneshot::Sender<()>>,
         home_dir: PathBuf,
     ) -> AppResult<Self> {
-        tokio::fs::create_dir_all(&config.claw_dir).await?;
-        let store = JsonStore::new(config.claw_dir.clone());
-        let audit = Arc::new(AuditService::open(config.claw_dir.join("audit.sqlite")).await?);
+        tokio::fs::create_dir_all(&config.browserclaw_dir).await?;
+        let store = JsonStore::new(config.browserclaw_dir.clone());
+        let audit =
+            Arc::new(AuditService::open(config.browserclaw_dir.join("audit.sqlite")).await?);
         let replay = Arc::new(ReplayService::new(
-            config.claw_dir.join("replays"),
+            config.browserclaw_dir.join("replays"),
             50,
             Duration::from_secs(30),
         ));
-        let screenshots = Arc::new(ScreenshotService::new(config.claw_dir.join("screenshots")));
+        let screenshots = Arc::new(ScreenshotService::new(
+            config.browserclaw_dir.join("screenshots"),
+        ));
         let harness = Arc::new(HarnessService::new(
-            config.claw_dir.join("mcp-manager"),
+            config.browserclaw_dir.join("mcp-manager"),
             home_dir,
         ));
-        let telemetry = Arc::new(TelemetryService::new(&config.claw_dir));
+        let telemetry = Arc::new(TelemetryService::new(&config.browserclaw_dir));
         let agents = Arc::new(AgentService::new(store.clone()));
         let sessions = SessionRegistry::new(
             audit.clone(),

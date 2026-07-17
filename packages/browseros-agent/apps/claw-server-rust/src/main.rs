@@ -30,14 +30,14 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn init_tracing(config: Arc<claw_server_rust::config::Config>) -> anyhow::Result<WorkerGuard> {
-    std::fs::create_dir_all(config.claw_dir.join("logs")).with_context(|| {
+    std::fs::create_dir_all(config.browserclaw_dir.join("logs")).with_context(|| {
         format!(
             "failed to create log directory {}",
-            config.claw_dir.join("logs").display()
+            config.browserclaw_dir.join("logs").display()
         )
     })?;
     let file_appender =
-        tracing_appender::rolling::daily(config.claw_dir.join("logs"), "claw-server.log");
+        tracing_appender::rolling::daily(config.browserclaw_dir.join("logs"), "claw-server.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
     let env_filter = EnvFilter::try_from_env("CLAW_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::registry()
@@ -177,7 +177,6 @@ mod tests {
             proxy_port: None,
             resources_dir: root.path().join("resources"),
             browserclaw_dir: root.path().to_path_buf(),
-            claw_dir: root.path().to_path_buf(),
             session_idle: Duration::from_secs(300),
             session_sweep_interval: Duration::from_secs(60),
             screencast_screenshot_fallback: true,

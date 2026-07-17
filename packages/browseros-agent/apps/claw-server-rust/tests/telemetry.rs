@@ -137,7 +137,6 @@ async fn test_router(root: &Path) -> anyhow::Result<Router> {
         proxy_port: None,
         resources_dir: root.join("resources"),
         browserclaw_dir: root.to_path_buf(),
-        claw_dir: root.to_path_buf(),
         session_idle: Duration::from_secs(300),
         session_sweep_interval: Duration::from_secs(60),
         screencast_screenshot_fallback: true,

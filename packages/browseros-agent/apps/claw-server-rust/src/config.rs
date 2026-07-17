@@ -31,7 +31,6 @@ pub struct Config {
     pub proxy_port: Option<u16>,
     pub resources_dir: PathBuf,
     pub browserclaw_dir: PathBuf,
-    pub claw_dir: PathBuf,
     pub session_idle: Duration,
     pub session_sweep_interval: Duration,
     pub screencast_screenshot_fallback: bool,
@@ -141,7 +140,6 @@ impl Config {
             .unwrap_or_else(|| cwd.join("resources"));
         let dev_mode = sidecar.flags.dev_mode.unwrap_or(default_dev_mode);
         let browserclaw_dir = resolve_browserclaw_dir(env, dev_mode, &cwd);
-        let claw_dir = browserclaw_dir.clone();
         let auth_token = sidecar
             .auth
             .token
@@ -153,7 +151,6 @@ impl Config {
             proxy_port,
             resources_dir,
             browserclaw_dir,
-            claw_dir,
             session_idle: Duration::from_millis(read_positive_ms(
                 env,
                 "CLAW_SESSION_IDLE_MS",
@@ -277,7 +274,6 @@ mod tests {
         assert_eq!(cfg.proxy_port, None);
         assert_eq!(cfg.session_idle, Duration::from_millis(1000));
         assert!(cfg.browserclaw_dir.ends_with("browserclaw"));
-        assert_eq!(cfg.claw_dir, cfg.browserclaw_dir);
         assert_eq!(cfg.public_mcp_url(), "http://127.0.0.1:9200/mcp");
         Ok(())
     }
@@ -459,7 +455,6 @@ mod tests {
         assert_eq!(cfg.cdp_port, 49338);
         assert_eq!(cfg.proxy_port, Some(9444));
         assert!(cfg.browserclaw_dir.ends_with(".browserclaw-dev"));
-        assert_eq!(cfg.claw_dir, cfg.browserclaw_dir);
         assert_eq!(cfg.public_mcp_url(), "http://127.0.0.1:9444/mcp");
         Ok(())
     }
