@@ -58,6 +58,10 @@ pub(super) async fn list(
         .await
         .map_err(|source| internal(&request_id, source))?;
     let live = live_sessions(&state).await;
+    // profile_id lives on the live session's agent, not in the audit
+    // store, so a profileId filter can only match live sessions — and
+    // it applies after pagination, so a filtered page may come back
+    // short rather than backfilled.
     let mut items = Vec::with_capacity(result.tasks.len());
     for task in result.tasks {
         let session = live.get(task.session_id.as_str());
@@ -142,6 +146,8 @@ pub(super) async fn recording(
         .meta(&session_id)
         .await
         .map_err(|source| internal(&request_id, source))?;
+    // page_ids = tabs still claimed by this session whose targets have
+    // recorded events — the per-tab views a replay can offer.
     let target_ids = metadata
         .targets
         .iter()
@@ -241,6 +247,11 @@ pub(super) async fn append_events(
     let page_id = positive_recording_header(&request_id, &headers, "x-recording-page-id")?;
     let target_id = recording_target_header(&request_id, &headers)?;
     let events = parse_recording_events(&body);
+    // Batches are pinned to the (tab, page, target) incarnation the
+    // recorder captured them from. Any drift — the tab reclaimed by
+    // another session, a navigation that swapped the target — makes the
+    // batch undeliverable rather than attributing its events to the
+    // wrong replay; the 409 tells the recorder to drop its association.
     let Some(target) = state.tab_activity.snapshot().await.into_iter().find(|tab| {
         tab.session_id == session_id
             && tab.tab_id == tab_id
@@ -270,6 +281,8 @@ pub(super) async fn append_events(
     Ok(Json(AppendRecordingEventsResponse::new(accepted)))
 }
 
+/// Tolerant parse of recorder-supplied NDJSON: lines that are not JSON
+/// or lack an integer `ts` are dropped, never fatal.
 fn parse_recording_events(body: &str) -> Vec<RecordingEventInput> {
     body.lines()
         .filter_map(|line| {
@@ -360,6 +373,8 @@ async fn live_sessions(state: &AppState) -> HashMap<String, Arc<Session>> {
 }
 
 async fn contract_summary(task: TaskSummary, live: Option<&Arc<Session>>) -> SessionSummary {
+    // A live session can still rename itself, so prefer its current
+    // label; once ended, the audited title is all that remains.
     let name = match live {
         Some(session) => session.label().await,
         None => task.title.clone(),

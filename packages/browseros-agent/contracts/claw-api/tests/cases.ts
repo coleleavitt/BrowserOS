@@ -1,3 +1,16 @@
+/**
+ * The behavioral half of the contract: every case runs verbatim against
+ * both server implementations through the generated client (raw fetch
+ * where the client can't express the check), asserting observable wire
+ * behavior only — status codes, envelopes, headers — never anything
+ * implementation-specific. A case that passes on one server and fails
+ * on the other is by definition a contract violation.
+ *
+ * Cases assume the seeded world the adapters provide (a live and an
+ * ended session, tab 101 / page 7 / target-7, one screenshot). The
+ * `shutdown` case must stay last: it kills the server it runs against.
+ */
+
 import { expect } from 'bun:test'
 import {
   type ApiError,
@@ -11,6 +24,12 @@ export interface ContractCase {
   run(server: ContractServer): Promise<void>
 }
 
+// Legacy vocabulary the canonical surface must never leak (sessions
+// replaced agents/tasks/runs), and the inline-frame key the tab list
+// must not carry (binary travels via the preview/screenshot endpoints).
+// Spelled via concatenation so the forbidden names never appear
+// literally in the contract package — a plain grep for them under
+// `contracts/claw-api` should come up empty.
 const FORBIDDEN_IDENTITY_KEYS = ['agent', 'task', 'run'].map(
   (scope) => `${scope}Id`,
 )
@@ -62,6 +81,8 @@ export const contractCases: ContractCase[] = [
       for (const key of FORBIDDEN_IDENTITY_KEYS) {
         expect(serialized).not.toContain(key)
       }
+      // Absent optional fields are omitted entirely, never null — the
+      // reason both servers build responses field-conditionally.
       expect(JSON.stringify(detail)).not.toContain(':null')
     },
   },

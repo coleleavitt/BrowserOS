@@ -27,6 +27,8 @@ import {
 import { screencastCache } from '../../services/screencast-cache'
 import { resolveAgentDisplay } from './agent-display'
 
+// This route's wire shape predates sessionId/tabId and stays frozen;
+// the canonical `/api/v1/tabs` carries the full record.
 type LegacyTabActivityRecord = Omit<TabActivityRecord, 'sessionId' | 'tabId'>
 
 interface EnrichedTabRecord extends LegacyTabActivityRecord {

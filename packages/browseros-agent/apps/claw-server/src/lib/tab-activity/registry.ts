@@ -10,6 +10,12 @@
  * `GET /tabs/activity` to render the current view.
  *
  * Each record carries:
+ *   - `sessionId`: the MCP session currently claiming the tab. The
+ *     canonical `/api/v1/tabs` attributes the tab to it, and recording
+ *     ingest refuses batches whose claim has drifted from it.
+ *   - `tabId`: the browser tab id, kept alongside the CDP identifiers
+ *     because the recorder addresses tabs by tab id — it is the join
+ *     key between recorder batches and CDP-side state.
  *   - `firstToolAt`: when this agent first touched the tab (does not
  *     update on subsequent tool calls).
  *   - `lastToolAt` / `lastToolName`: the most recent dispatch.

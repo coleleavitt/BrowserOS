@@ -115,9 +115,19 @@ impl IntoResponse for AppError {
 
 pub type AppResult<T> = Result<T, AppError>;
 
+/// Server-minted id for one HTTP request — never read from an inbound
+/// header. The `request_context` middleware creates it, stores it as a
+/// request extension, and echoes it back as `x-request-id`; canonical
+/// error bodies embed it so a reported failure can be tied to its
+/// request span in the logs.
 #[derive(Clone, Debug)]
 pub struct RequestId(pub String);
 
+/// The canonical routes' error dialect: the contract's `ApiError`
+/// envelope (`code` / `message` / `requestId`), as opposed to the
+/// legacy `{ "error": … }` body `AppError` renders. Handlers on the
+/// canonical surface must fail through this type so error responses
+/// stay in-contract.
 pub struct CanonicalError {
     status: StatusCode,
     body: ApiError,

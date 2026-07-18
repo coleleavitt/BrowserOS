@@ -1,3 +1,10 @@
+//! Contract-testable claw-server-rust: the full router over real app
+//! state seeded with one live and one ended session, no browser or CDP
+//! required. The cross-server contract suite
+//! (`contracts/claw-api/tests`) builds and spawns this binary to run
+//! the shared cases against the Rust implementation; it can also be run
+//! by hand: `cargo run --example contract-server <port> <data-dir>`.
+
 use axum::Router;
 use browseros_core::TargetId;
 use claw_server_rust::{

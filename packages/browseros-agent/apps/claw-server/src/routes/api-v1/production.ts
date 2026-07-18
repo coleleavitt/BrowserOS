@@ -2,6 +2,16 @@
  * @license
  * Copyright 2026 BrowserOS
  * SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * Production wiring for the canonical API: adapts the server's existing
+ * services (audit task store, MCP identity service, replay + recording
+ * stores, screencast cache, harness connect) onto the
+ * implementation-neutral `CanonicalApiDependencies` seam. `createServer`
+ * mounts this by default; tests swap in fakes.
+ *
+ * Vocabulary bridge: a canonical *session* is what the audit services
+ * call a *task* (both keyed by MCP session id), and a canonical
+ * *dispatch* is one audited tool call.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -68,6 +78,10 @@ export const canonicalApiDependencies: CanonicalApiDependencies = {
       ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
       ...(query.limit !== undefined ? { limit: query.limit } : {}),
     })
+    // Browser profiles are a BrowserOS-native concept: only the Rust
+    // server mints `profileId`, this server never does, so a profileId
+    // filter here matches nothing. The filter exists for parity with
+    // the contract's query surface.
     const items = result.tasks.map(sessionSummary)
     const filtered = query.profileId
       ? items.filter((item) => item.profileId === query.profileId)
@@ -82,6 +96,8 @@ export const canonicalApiDependencies: CanonicalApiDependencies = {
     return task ? sessionDetail(task) : null
   },
   getSessionState(sessionId) {
+    // Liveness comes from the MCP identity service (a transport is
+    // still attached); the audit store remembers ended sessions.
     if (identityService.getIdentity(sessionId)) return 'live'
     return getTask(sessionId) ? 'ended' : 'missing'
   },
@@ -93,6 +109,8 @@ export const canonicalApiDependencies: CanonicalApiDependencies = {
   getRecording(sessionId) {
     if (!knownSession(sessionId)) return null
     const metadata = replayService.getMeta(sessionId)
+    // pageIds = tabs still claimed by this session whose targets have
+    // recorded events — the per-tab views a replay can offer.
     const targetIds = new Set(metadata.targets.map((target) => target.targetId))
     const pageIds = tabActivityRegistry
       .snapshot()
@@ -198,6 +216,13 @@ export const canonicalApiDependencies: CanonicalApiDependencies = {
   },
 }
 
+/**
+ * A batch lands only while the recorder's (tab, page, target) claim
+ * still matches the live registry for that session. Any drift — the tab
+ * reclaimed by another session, a navigation that swapped the target —
+ * makes the batch undeliverable rather than attributing its events to
+ * the wrong replay. Exported for the route tests.
+ */
 export function recordingTargetFor(
   tabs: TabActivityRecord[],
   sessionId: string,
@@ -270,6 +295,7 @@ function connection(state: ConnectionState): Connection {
   }
 }
 
+/** Tolerant parse of recorder-supplied NDJSON: lines that aren't JSON or lack a finite `ts` are dropped, never fatal. */
 function parseRecordingEvents(ndjson: string): RecordingEventInput[] {
   const events: RecordingEventInput[] = []
   for (const line of ndjson.split('\n')) {

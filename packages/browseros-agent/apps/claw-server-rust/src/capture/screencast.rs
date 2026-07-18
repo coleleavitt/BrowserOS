@@ -109,7 +109,8 @@ impl ScreencastService {
         self.inner.lock().await.frames.get(&page_id).cloned()
     }
 
-    /// Record a `/tabs/activity` read for the idle governor.
+    /// Record a tab-listing read (`/tabs/activity` or `/api/v1/tabs`)
+    /// for the idle governor.
     pub fn note_read(&self) {
         self.last_read_ms.store(now_epoch_ms(), Ordering::Relaxed);
     }
@@ -235,6 +236,8 @@ impl ScreencastService {
         .await;
     }
 
+    /// Public so integration tests can seed preview frames; production
+    /// frames arrive via `store_capture` from the poller.
     pub async fn cache_frame(&self, page_id: u32, frame: ScreencastFrame) {
         let mut inner = self.inner.lock().await;
         inner.frames.remove(&page_id);

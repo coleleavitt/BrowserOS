@@ -22,6 +22,13 @@ pub struct ToolEvent {
 #[serde(rename_all = "camelCase")]
 pub struct TabActivityRecord {
     pub target_id: String,
+    // tab_id and session_id are skipped because this struct serializes
+    // as the legacy `/tabs/activity` wire shape, which stays frozen;
+    // the canonical `/api/v1/tabs` reads both fields in-process. tab_id
+    // is the browser tab id — the join key between recorder batches
+    // (which only know tab ids) and CDP-side state; session_id is the
+    // MCP session currently claiming the tab, which recording ingest
+    // checks before accepting a batch.
     #[serde(skip)]
     pub tab_id: i64,
     pub page_id: u32,

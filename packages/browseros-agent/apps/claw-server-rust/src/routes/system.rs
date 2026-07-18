@@ -1,3 +1,7 @@
+//! Pre-contract `/system/*` diagnostics that remain outside the
+//! canonical surface. `/system/health` and `/system/shutdown` belong to
+//! the contract and live in `routes::api_v1`.
+
 use super::wire::WireJson;
 use crate::{AppState, telemetry::TelemetryState};
 use axum::{Json, extract::State};

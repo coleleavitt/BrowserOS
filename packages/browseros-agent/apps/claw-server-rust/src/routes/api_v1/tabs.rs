@@ -18,6 +18,8 @@ pub(super) async fn list(
     Extension(request_id): Extension<RequestId>,
     State(state): State<AppState>,
 ) -> Result<Json<TabList>, CanonicalError> {
+    // Wakes the screencast idle governor so previews keep refreshing
+    // while anyone is watching the tab list.
     state.screencast.note_read();
     let profiles = state
         .agents
@@ -38,6 +40,9 @@ pub(super) async fn list(
                     .iter()
                     .find(|profile| profile.id == profile_id.as_str())
             });
+        // Label preference: profile name, then the live agent's label,
+        // then the recorded slug — the only identity that survives once
+        // the session ends.
         let label = profile
             .map(|profile| profile.name.clone())
             .or_else(|| {
@@ -109,6 +114,8 @@ pub(super) async fn preview(
             "internal server error",
         )
     })?;
+    // An empty cached frame is treated as missing, not as an error —
+    // the client's fallback is the same either way.
     if bytes.is_empty() {
         return Err(error(
             &request_id,
@@ -117,6 +124,7 @@ pub(super) async fn preview(
             "tab preview not found",
         ));
     }
+    // Superseded by the next screencast frame — never serve from cache.
     Ok(jpeg_response(bytes, "private, max-age=0, must-revalidate"))
 }
 
@@ -127,6 +135,7 @@ pub(super) async fn screenshot(
 ) -> Result<Response, CanonicalError> {
     let dispatch_id = positive_i64(&request_id, &dispatch_id, "dispatchId")?;
     match state.screenshots.read(&dispatch_id.to_string()).await {
+        // Written once at capture time — safe to cache hard.
         Ok(bytes) => Ok(jpeg_response(bytes, "public, max-age=86400, immutable")),
         Err(source) if source.status() == StatusCode::NOT_FOUND => Err(error(
             &request_id,

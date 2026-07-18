@@ -1,3 +1,19 @@
+/**
+ * Codegen for the canonical BrowserClaw API. Reads the OpenAPI spec at
+ * `contracts/claw-api/openapi.yaml` and emits both generated clients:
+ * the TypeScript fetch client into `packages/claw-api/src/generated`
+ * and the Rust DTOs into `crates/claw-api/src/generated`. Neither tree
+ * is ever hand-edited — change the spec, then regenerate with
+ * `bun run codegen:claw-api`.
+ *
+ * The generator runs in Docker with a pinned image and the output is
+ * normalized (trailing whitespace stripped, generated Rust run through
+ * rustfmt) so the emitted trees are byte-identical across machines.
+ * That determinism is what lets `--check` (`bun run
+ * codegen:claw-api:check`, the CI drift gate) compare a fresh
+ * generation against the committed trees byte for byte.
+ */
+
 import { spawnSync } from 'node:child_process'
 import {
   cpSync,
@@ -20,6 +36,8 @@ interface GeneratedTrees {
 }
 
 function runGenerator(outputRoot: string): GeneratedTrees {
+  // Run the container as the invoking user so the generated files on
+  // the bind mount aren't root-owned on Linux hosts.
   const mount = `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`
   const common = [
     'run',

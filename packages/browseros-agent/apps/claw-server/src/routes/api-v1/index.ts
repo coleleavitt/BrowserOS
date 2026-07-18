@@ -29,6 +29,13 @@ export interface BinaryAsset {
   etag?: string
 }
 
+/**
+ * `live` — an MCP transport is still attached; `ended` — the transport
+ * is gone but audit history remains; `missing` — unknown id. The
+ * distinction drives the canonical status split: for an ended session,
+ * cancel answers 409 and recording ingest 410; both answer 404 for a
+ * missing one.
+ */
 export type SessionState = 'live' | 'ended' | 'missing'
 
 export interface CanonicalSessionQuery {
@@ -55,9 +62,13 @@ export interface CanonicalApiDependencies {
   listSessions(query: CanonicalSessionQuery): SessionList
   getSession(sessionId: string): SessionDetail | null
   getSessionState(sessionId: string): SessionState
+  /** Returns how many in-flight dispatches were aborted. */
   cancelSession(sessionId: string): number
+  /** Null means unknown session — a known session with no captured events still gets metadata (`hasData: false`). */
   getRecording(sessionId: string): RecordingMetadata | null
+  /** Full NDJSON stream. Null means unknown session; `''` means known but nothing captured yet. */
   downloadRecordingEvents(sessionId: string): Promise<string | null>
+  /** Null means the (tab, page, target) association no longer belongs to this session. */
   appendRecordingEvents(
     sessionId: string,
     association: RecordingAssociation,
@@ -144,6 +155,12 @@ export function createCanonicalApiRoute(deps: CanonicalApiDependencies) {
         'content-type must be application/x-ndjson',
       )
     }
+    // The recorder pins every batch to the (tab, page, target)
+    // incarnation it captured from. All three are required so a batch
+    // can never be attributed to a tab that was since reclaimed —
+    // appendRecordingEvents refuses (409) when the association no
+    // longer holds, and the recorder drops its cached association on
+    // any of 404/409/410.
     const tabId = positiveInteger(c.req.header('x-recording-tab-id') ?? '')
     const pageId = positiveInteger(c.req.header('x-recording-page-id') ?? '')
     const targetId = c.req.header('x-recording-target-id')
@@ -182,6 +199,7 @@ export function createCanonicalApiRoute(deps: CanonicalApiDependencies) {
     if (!asset) {
       return apiError(c, 404, 'preview_not_found', 'tab preview not found')
     }
+    // Superseded by the next screencast frame — never serve from cache.
     return binaryResponse(asset, 'private, max-age=0, must-revalidate')
   })
   app.get('/api/v1/dispatches/:dispatchId/screenshot', (c) => {
@@ -198,6 +216,7 @@ export function createCanonicalApiRoute(deps: CanonicalApiDependencies) {
         'dispatch screenshot not found',
       )
     }
+    // Written once at capture time — safe to cache hard.
     return binaryResponse(asset, 'public, max-age=86400, immutable')
   })
 
@@ -237,6 +256,8 @@ function binaryResponse(asset: BinaryAsset, cacheControl: string): Response {
     'cache-control': cacheControl,
   }
   if (asset.etag) headers.etag = `"${asset.etag}"`
+  // TS rejects `Uint8Array<ArrayBufferLike>` as BodyInit, so copy the
+  // bytes into a fresh ArrayBuffer the Response can own.
   const body = new ArrayBuffer(asset.bytes.byteLength)
   new Uint8Array(body).set(asset.bytes)
   return new Response(body, { headers })
@@ -305,6 +326,7 @@ function parseSessionQuery(
   }
 }
 
+/** `undefined` — param absent; `false` — present but not an integer in [minimum, maximum]. */
 function optionalInteger(
   raw: string | undefined,
   minimum: number,

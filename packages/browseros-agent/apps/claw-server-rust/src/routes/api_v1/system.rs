@@ -9,10 +9,14 @@ use claw_api::models::{
     HealthResponse, ShutdownResponse, SystemInfo, TelemetryState, UpdateTelemetryRequest,
 };
 
+// The contract's health is pure liveness: `status` is a single-variant
+// enum, so a reachable server can only answer "ok".
 pub(super) async fn health() -> Json<HealthResponse> {
     Json(HealthResponse::default())
 }
 
+// Only signals; the runtime's shutdown owner drains sessions and stops
+// the process.
 pub(super) async fn shutdown(State(state): State<AppState>) -> Json<ShutdownResponse> {
     state.shutdown.request();
     Json(ShutdownResponse::default())

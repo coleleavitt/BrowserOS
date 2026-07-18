@@ -1,3 +1,11 @@
+//! Canonical contract routes: the Rust implementation of the shared
+//! BrowserClaw OpenAPI contract (`contracts/claw-api`), speaking the
+//! generated `claw_api` types end to end. The TS claw-server implements
+//! the same surface, and the cross-server contract suite runs the same
+//! cases against both. Besides `/api/v1/*` the contract also owns
+//! `/system/health` and `/system/shutdown`; the pre-contract
+//! diagnostics stay in `routes::system`.
+
 use crate::{
     AppState,
     error::{AppError, CanonicalError, RequestId},

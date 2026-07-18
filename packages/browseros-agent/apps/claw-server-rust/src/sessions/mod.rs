@@ -183,6 +183,8 @@ impl Sessions {
         cancelled
     }
 
+    /// `None` when the session is not live; `Some(n)` aborts its active
+    /// dispatches and reports how many there were.
     pub async fn cancel_by_session(&self, session_id: &SessionId) -> Option<usize> {
         let session = self.lookup(session_id).await?;
         Some(session.cancel_active_dispatches().await)

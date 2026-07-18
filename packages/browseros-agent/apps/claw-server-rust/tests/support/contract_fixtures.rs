@@ -1,3 +1,8 @@
+//! Deserializes every shared golden fixture from
+//! `contracts/claw-api/fixtures` through the generated `claw_api`
+//! models. The TS suite round-trips the same files, so a fixture that
+//! passes both proves the two type systems agree on the wire shape.
+
 use axum::{http::StatusCode, response::IntoResponse};
 use claw_api::models::{
     ApiError, AppendRecordingEventsResponse, CancelSessionResponse, Connection, ConnectionList,

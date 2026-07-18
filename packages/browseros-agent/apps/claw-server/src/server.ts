@@ -4,8 +4,13 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * Hono application composition for the standalone BrowserClaw server.
- * Callers create an isolated app instance so tests can inject lifecycle
- * hooks and the production entry point can own shutdown behavior.
+ * Two API generations mount side by side: the canonical surface
+ * implemented against the shared OpenAPI contract (generated
+ * `@browseros/claw-api` types — the same contract claw-server-rust
+ * implements), and the legacy route families that predate it. Callers
+ * create an isolated app instance so tests can inject lifecycle hooks
+ * and canonical dependencies; the production entry point owns shutdown
+ * behavior.
  */
 
 import type { MiddlewareHandler } from 'hono'
@@ -98,6 +103,11 @@ export function createServer(options: CreateServerOptions = {}) {
   // JSON body.
   app.onError((err, c) => {
     captureRouteError(err, c.req.path, c.req.method)
+    // Contract routes must fail in-contract: the canonical `ApiError`
+    // envelope with the request id, never the legacy `{ error }` shape.
+    // onError cannot tell which sub-router threw, so membership is by
+    // path — `/api/v1/*` plus the two `/system` endpoints the contract
+    // also owns.
     if (
       c.req.path.startsWith('/api/v1/') ||
       c.req.path === '/system/health' ||

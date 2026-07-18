@@ -1,3 +1,16 @@
+/**
+ * Boots each implementation for the cross-server suite. The TypeScript
+ * server runs in-process: `createServer` with scripted
+ * `CanonicalApiDependencies`. The Rust server runs as the compiled
+ * `contract-server` example (claw-server-rust), which seeds real app
+ * state to the same shape.
+ *
+ * The fixtures here — `liveSession` / `endedSession`, tab 101 / page 7
+ * / target-7, dispatch 1 with its screenshot — must stay in lockstep
+ * with the Rust example's `seed()`: the cases assert the same values
+ * against both servers.
+ */
+
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'

@@ -1,3 +1,9 @@
+//! In-process coverage of the canonical contract routes: drives the
+//! full router over seeded app state via tower, no network or browser.
+//! The TS twin is claw-server's `tests/routes/api-v1.test.ts`; the
+//! cross-server suite in `contracts/claw-api/tests` layers real-HTTP
+//! parity checks on top of both.
+
 use axum::{
     Router,
     body::{Body, to_bytes},
