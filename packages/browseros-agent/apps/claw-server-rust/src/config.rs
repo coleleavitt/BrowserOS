@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::{
     collections::BTreeMap,
     env, fs,
-    num::NonZeroU16,
+    num::{NonZeroU16, NonZeroU64},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -13,6 +13,7 @@ const DEFAULT_CDP_PORT: u16 = 49337;
 const DEFAULT_SESSION_IDLE_MS: u64 = 5 * 60 * 1000;
 const DEFAULT_SESSION_RETENTION_MS: u64 = 2 * 60 * 60 * 1000;
 const DEFAULT_SESSION_SWEEP_INTERVAL_MS: u64 = 60 * 1000;
+const DEFAULT_REPLAY_RETENTION_DAYS: u64 = 7;
 const BROWSERCLAW_DIR_NAME: &str = ".browserclaw";
 const DEV_BROWSERCLAW_DIR_NAME: &str = ".browserclaw-dev";
 
@@ -35,6 +36,7 @@ pub struct Config {
     pub session_idle: Duration,
     pub session_retention: Duration,
     pub session_sweep_interval: Duration,
+    pub replay_retention_days: u64,
     pub screencast_screenshot_fallback: bool,
     pub dev_mode: bool,
     pub auth_token: Option<String>,
@@ -78,6 +80,8 @@ struct SidecarConfig {
     flags: SidecarFlags,
     #[serde(default)]
     auth: SidecarAuth,
+    #[serde(default)]
+    replay: Option<SidecarReplay>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -101,6 +105,12 @@ struct SidecarFlags {
 #[derive(Debug, Default, Deserialize)]
 struct SidecarAuth {
     token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SidecarReplay {
+    retention_days: NonZeroU64,
 }
 
 impl Config {
@@ -168,6 +178,10 @@ impl Config {
                 "CLAW_SESSION_SWEEP_INTERVAL_MS",
                 DEFAULT_SESSION_SWEEP_INTERVAL_MS,
             )),
+            replay_retention_days: sidecar
+                .replay
+                .map(|replay| replay.retention_days.get())
+                .unwrap_or(DEFAULT_REPLAY_RETENTION_DAYS),
             screencast_screenshot_fallback: read_bool_default_true(
                 env,
                 "CLAW_SCREENCAST_SCREENSHOT_FALLBACK",
@@ -282,8 +296,22 @@ mod tests {
         assert_eq!(cfg.proxy_port, None);
         assert_eq!(cfg.session_idle, Duration::from_millis(1000));
         assert_eq!(cfg.session_retention, Duration::from_millis(2000));
+        assert_eq!(cfg.replay_retention_days, 7);
         assert!(cfg.browserclaw_dir.ends_with("browserclaw"));
         assert_eq!(cfg.public_mcp_url(), "http://127.0.0.1:9200/mcp");
+        Ok(())
+    }
+
+    #[test]
+    fn reads_replay_retention_days_from_sidecar_config() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let config_path = dir.path().join("sidecar.json");
+        fs::write(&config_path, r#"{"replay":{"retentionDays":14}}"#)?;
+        let cfg = Config::load_with_env(
+            &config_path,
+            &ConfigEnv::with_vars(BTreeMap::new(), dir.path().join("home")),
+        )?;
+        assert_eq!(cfg.replay_retention_days, 14);
         Ok(())
     }
 

@@ -20,6 +20,7 @@ pub fn apply(
             if let Some(browser) = &context.call.browser_session
                 && let Some(info) = browser.pages.get_info(PageId(page_id)).await
             {
+                let target_id = info.target_id.as_str().to_string();
                 context
                     .call
                     .state
@@ -34,6 +35,14 @@ pub fn apply(
                         tool_name: "tabs".to_string(),
                     })
                     .await;
+                let session_id = context.call.session_id.as_str().to_string();
+                let agent_id = identity.session.convo_id().as_str().to_string();
+                let claimed_at = context.call.started_at_ms;
+                context
+                    .call
+                    .state
+                    .audit
+                    .enqueue_claim_target_for_session(target_id, session_id, agent_id, claimed_at);
             }
             context
                 .call
@@ -46,6 +55,15 @@ pub fn apply(
             && let Some(page_id) = extract_page_id(context.call)
         {
             let page_id = PageId(page_id);
+            if let Some(page) = &context.call.page_snapshot {
+                let target_id = page.target_id.as_str().to_string();
+                let session_id = context.call.session_id.as_str().to_string();
+                context
+                    .call
+                    .state
+                    .audit
+                    .enqueue_release_target_for_session(target_id, session_id);
+            }
             context
                 .call
                 .state
@@ -64,8 +82,150 @@ const _: ToolEffect = apply;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::audit::entities::{prelude::TabClaims, tab_claims};
+    use browseros_cdp::{CdpError, CdpEvent, SessionId};
+    use browseros_core::{BrowserSession, BrowserSessionHooks, CdpConnection};
     use browseros_mcp::ToolResult;
-    use serde_json::json;
+    use futures_util::future::BoxFuture;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    use serde_json::{Value, json};
+    use std::sync::Arc;
+    use tokio::sync::broadcast;
+
+    struct PageListConnection {
+        events: broadcast::Sender<CdpEvent>,
+    }
+
+    impl PageListConnection {
+        fn new() -> Arc<Self> {
+            let (events, _) = broadcast::channel(1);
+            Arc::new(Self { events })
+        }
+    }
+
+    impl CdpConnection for PageListConnection {
+        fn send<'a>(
+            &'a self,
+            method: &'a str,
+            _params: Value,
+            _session: Option<&'a SessionId>,
+        ) -> BoxFuture<'a, Result<Value, CdpError>> {
+            Box::pin(async move {
+                match method {
+                    "Browser.getTabs" => Ok(json!({
+                        "tabs": [{
+                            "tabId": 11,
+                            "targetId": "target-a",
+                            "url": "https://example.com",
+                            "title": "Example",
+                            "isActive": true,
+                            "isLoading": false,
+                            "loadProgress": 1.0,
+                            "isPinned": false,
+                            "isHidden": false,
+                            "windowId": 1,
+                            "index": 0
+                        }]
+                    })),
+                    _ => Ok(json!({})),
+                }
+            })
+        }
+
+        fn send_raw_json<'a>(
+            &'a self,
+            _method: &'a str,
+            _params_json: &'a str,
+            _session: Option<&'a SessionId>,
+        ) -> BoxFuture<'a, Result<String, CdpError>> {
+            Box::pin(async { Ok("{}".to_string()) })
+        }
+
+        fn events(&self) -> broadcast::Receiver<CdpEvent> {
+            self.events.subscribe()
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn connection_epoch(&self) -> u64 {
+            1
+        }
+    }
+
+    async fn wait_for_claim(
+        call: &crate::mcp::dispatch::ToolCall,
+        released: bool,
+    ) -> anyhow::Result<tab_claims::Model> {
+        for _ in 0..100 {
+            if let Some(claim) = TabClaims::find().one(call.state.audit.connection()).await?
+                && claim.released_at.is_some() == released
+            {
+                return Ok(claim);
+            }
+            tokio::task::yield_now().await;
+        }
+        anyhow::bail!("claim did not reach expected state")
+    }
+
+    #[tokio::test]
+    async fn new_and_close_write_the_target_claim_window() -> anyhow::Result<()> {
+        let browser =
+            BrowserSession::new(PageListConnection::new(), BrowserSessionHooks::default());
+        assert_eq!(browser.pages.list().await?.len(), 1);
+        let mut new_call =
+            crate::mcp::test_support::tool_call("tabs", json!({ "action": "new" })).await?;
+        new_call.browser_session = Some(browser.clone());
+        new_call.started_at_ms = 123;
+        let result = ToolResult::text("new page", Some(json!({ "page": 1 })));
+
+        apply(ToolEffectContext {
+            call: &new_call,
+            result: &result,
+            cancelled: false,
+            duration_ms: 1,
+        })
+        .await?;
+        let claim = wait_for_claim(&new_call, false).await?;
+        assert_eq!(claim.target_id, "target-a");
+        assert_eq!(claim.session_id, "s1");
+        assert_eq!(claim.claimed_at, 123);
+
+        let mut close_call =
+            crate::mcp::test_support::tool_call("tabs", json!({ "action": "close", "page": 1 }))
+                .await?;
+        close_call.page_snapshot = browser.pages.get_info(PageId(1)).await;
+        close_call
+            .state
+            .audit
+            .claim_target_for_session("target-a", "s1", "agent", 100)
+            .await?;
+        let result = ToolResult::text("closed page", None);
+        apply(ToolEffectContext {
+            call: &close_call,
+            result: &result,
+            cancelled: false,
+            duration_ms: 1,
+        })
+        .await?;
+        let released = TabClaims::find()
+            .filter(tab_claims::Column::ClaimedAt.eq(100))
+            .one(close_call.state.audit.connection())
+            .await?
+            .unwrap_or_else(|| panic!("close claim missing"));
+        for _ in 0..100 {
+            let current = TabClaims::find_by_id(released.id)
+                .one(close_call.state.audit.connection())
+                .await?
+                .unwrap_or_else(|| panic!("close claim missing"));
+            if current.released_at.is_some() {
+                return Ok(());
+            }
+            tokio::task::yield_now().await;
+        }
+        anyhow::bail!("close claim was not released")
+    }
 
     #[tokio::test]
     async fn close_page_removes_owned_page_and_first_capture() -> anyhow::Result<()> {

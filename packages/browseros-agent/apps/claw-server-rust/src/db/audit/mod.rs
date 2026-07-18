@@ -64,6 +64,8 @@ mod tests {
             "agent_session_starts",
             "agent_session_ends",
             "tasks",
+            "tab_recordings",
+            "tab_claims",
             "seaql_migrations",
         ] {
             assert!(names.contains(table), "missing table {table}");
@@ -81,6 +83,9 @@ mod tests {
             "tasks_status_cursor_idx",
             "tasks_site_cursor_idx",
             "tasks_started_idx",
+            "tab_recordings_last_event_idx",
+            "tab_claims_target_idx",
+            "tab_claims_session_idx",
         ] {
             assert!(names.contains(index), "missing index {index}");
         }
@@ -92,10 +97,14 @@ mod tests {
                 "SELECT version FROM seaql_migrations".to_string(),
             ))
             .await?;
-        assert_eq!(migrations.len(), 1);
+        assert_eq!(migrations.len(), 2);
         assert_eq!(
             migrations[0].try_get::<String>("", "version")?,
             "m0001_baseline"
+        );
+        assert_eq!(
+            migrations[1].try_get::<String>("", "version")?,
+            "m0002_add_recordings_and_claims"
         );
         Ok(())
     }
@@ -197,11 +206,7 @@ mod tests {
                 "SELECT version FROM seaql_migrations".to_string(),
             ))
             .await?;
-        assert_eq!(migrations.len(), 1);
-        assert_eq!(
-            migrations[0].try_get::<String>("", "version")?,
-            "m0001_baseline"
-        );
+        assert_eq!(migrations.len(), 2);
         Ok(())
     }
 

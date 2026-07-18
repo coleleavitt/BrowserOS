@@ -1,33 +1,33 @@
-mod replay_tabs;
-
 use crate::{
     AppState,
     error::{AppError, AppResult},
-    ids::{ConvoId, SessionId},
+    ids::ConvoId,
     mcp::streamable_http_service,
     services::{
         audit::{ListDispatchesQuery, ListTasksQuery, TaskStatus},
         harness::Harness,
-        replay::ReplayService,
+        recordings::RecordingEventInput,
         tab_activity::EnrichedTabRecord,
     },
     tabs::hex_for_slug,
 };
 use axum::{
     Json, Router,
-    body::Body,
+    body::to_bytes,
     extract::{Path, Query, Request, State},
     http::{HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, options, post},
+    routing::{get, post},
 };
-use replay_tabs::{ReplayTabsResponse, list_replay_tabs};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::HashMap, str::FromStr, time::Instant};
 use tracing::{Instrument, info_span};
 use ulid::Ulid;
+
+const MAX_RECORDING_BODY_BYTES: usize = 8 * 1024 * 1024;
+const MAX_SAFE_TAB_ID: i64 = 9_007_199_254_740_991;
 
 pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -51,20 +51,20 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/audit/tasks", get(audit_tasks))
         .route("/audit/tasks/{session_id}", get(audit_task_detail))
         .route("/audit/screenshot/{dispatch_id}", get(audit_screenshot))
+        .route("/recordings/health", get(recordings_health))
         .route(
-            "/audit/replay/{session_id}/events",
-            post(replay_post_events),
+            "/recordings/tabs/{tab_id}/events",
+            post(recordings_post_events),
         )
-        .route("/audit/replay/{session_id}", get(replay_get))
-        .route("/audit/replay/{session_id}/exists", get(replay_exists))
-        .route("/replay/tabs", get(replay_tabs))
+        .route("/audit/replays/{session_id}", get(audit_replay_get))
+        .route("/audit/replays/{session_id}/meta", get(audit_replay_meta))
         .nest_service(
             "/mcp",
             Router::new()
                 .fallback_service(streamable_http_service(state))
                 .layer(middleware::from_fn(mcp_request_hygiene)),
         )
-        .route("/{*path}", options(preflight))
+        .fallback(route_fallback)
 }
 
 /// Enforces the header conventions native MCP clients follow (parity with
@@ -133,7 +133,7 @@ pub async fn request_context(req: Request, next: Next) -> Response {
         headers.insert(
             header::ACCESS_CONTROL_ALLOW_HEADERS,
             HeaderValue::from_static(
-                "accept,content-type,authorization,mcp-session-id,mcp-protocol-version,last-event-id",
+                "accept,content-type,authorization,mcp-session-id,mcp-protocol-version,last-event-id,x-recording-batch-id",
             ),
         );
         if let Ok(value) = HeaderValue::from_str(&request_id) {
@@ -145,8 +145,12 @@ pub async fn request_context(req: Request, next: Next) -> Response {
     .await
 }
 
-async fn preflight() -> StatusCode {
-    StatusCode::NO_CONTENT
+async fn route_fallback(request: Request) -> StatusCode {
+    if *request.method() == Method::OPTIONS {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
 }
 
 async fn system_health(State(state): State<AppState>) -> Json<Value> {
@@ -162,6 +166,8 @@ async fn system_health(State(state): State<AppState>) -> Json<Value> {
 
 async fn system_shutdown(State(state): State<AppState>) -> AppResult<Json<Value>> {
     let drained = state.sessions.shutdown().await?;
+    state.audit.drain_claim_writes().await;
+    state.recordings.close().await;
     state.screencast.stop();
     state.browser.stop();
     if let Some(tx) = state.shutdown.lock().await.take() {
@@ -366,67 +372,132 @@ async fn audit_screenshot(
     ))
 }
 
-async fn replay_post_events(
-    State(state): State<AppState>,
-    Path(session_id): Path<String>,
-    body: String,
-) -> AppResult<Json<Value>> {
-    if !state
-        .sessions
-        .contains(&SessionId::new(session_id.clone()))
-        .await
-    {
-        return Err(AppError::gone("session not live"));
-    }
-    if body.is_empty() {
-        return Ok(Json(json!({ "ok": true, "accepted": 0 })));
-    }
-    let lines: Vec<String> = body
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(|line| ReplayService::annotate_with_session_id(line, &session_id))
-        .collect();
-    let accepted = lines.len();
-    state.replay.append_events(&session_id, &lines).await?;
-    Ok(Json(json!({ "ok": true, "accepted": accepted })))
+async fn recordings_health() -> Json<Value> {
+    Json(json!({ "ok": true }))
 }
 
-async fn replay_get(
+async fn recordings_post_events(
+    State(state): State<AppState>,
+    Path(tab_id): Path<String>,
+    request: Request,
+) -> Response {
+    if request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+        .is_some_and(|length| length > MAX_RECORDING_BODY_BYTES)
+    {
+        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+    }
+    let batch_id = request
+        .headers()
+        .get("x-recording-batch-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let bytes = match to_bytes(request.into_body(), MAX_RECORDING_BODY_BYTES + 1).await {
+        Ok(bytes) if bytes.len() <= MAX_RECORDING_BODY_BYTES => bytes,
+        Ok(_) | Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
+    let tab_id = tab_id
+        .chars()
+        .all(|ch| ch.is_ascii_digit())
+        .then(|| tab_id.parse::<i64>().ok())
+        .flatten()
+        .filter(|tab_id| *tab_id <= MAX_SAFE_TAB_ID);
+    let target_id = match tab_id {
+        Some(tab_id) => {
+            let browser = state.browser.state();
+            state
+                .tab_targets
+                .resolve(tab_id, state.browser.session().await, browser.epoch)
+                .await
+        }
+        None => None,
+    };
+    let (Some(tab_id), Some(target_id)) = (tab_id, target_id) else {
+        return Json(json!({
+            "ok": false,
+            "reason": "unknown tab",
+            "accepted": 0,
+        }))
+        .into_response();
+    };
+    let events = String::from_utf8_lossy(&bytes)
+        .lines()
+        .filter_map(parse_recording_event)
+        .collect::<Vec<_>>();
+    if events.is_empty() {
+        return Json(json!({ "ok": true, "accepted": 0 })).into_response();
+    }
+    let appended = match state
+        .recordings
+        .append_batch_with_id(&target_id, tab_id, &events, batch_id.as_deref())
+        .await
+    {
+        Ok(appended) => appended,
+        Err(error) => {
+            tracing::warn!(tab_id, target_id, error = %error, "recording batch append failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "ok": false,
+                    "reason": "append failed",
+                    "accepted": 0,
+                })),
+            )
+                .into_response();
+        }
+    };
+    if !appended {
+        return Json(json!({ "ok": true, "accepted": 0 })).into_response();
+    }
+    Json(json!({ "ok": true, "accepted": events.len() })).into_response()
+}
+
+fn parse_recording_event(line: &str) -> Option<RecordingEventInput> {
+    if line.trim().is_empty() {
+        return None;
+    }
+    let value = serde_json::from_str::<Value>(line).ok()?;
+    let event = value.as_object()?;
+    Some(RecordingEventInput {
+        ts: event.get("ts")?.as_i64()?,
+        event_type: event.get("type").cloned(),
+        data: event.get("data").cloned(),
+    })
+}
+
+async fn audit_replay_get(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> AppResult<Response> {
-    let stat = state.replay.stat_session(&session_id).await?;
-    if !stat.has_data {
-        return Err(AppError::not_found("no replay for this session"));
+    let events = state.replays.read_session(&session_id).await?;
+    if events.is_empty() {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "ok": false,
+                "reason": "no replay for this session",
+            })),
+        )
+            .into_response());
     }
-    let bytes = state.replay.read_events(&session_id).await?;
-    let mut response = Response::new(Body::from(bytes));
-    let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/x-ndjson"),
-    );
-    if let Ok(value) = HeaderValue::from_str(&stat.size_bytes.to_string()) {
-        headers.insert(header::CONTENT_LENGTH, value);
+    let mut body = String::new();
+    for event in events {
+        body.push_str(&serde_json::to_string(&event)?);
+        body.push('\n');
     }
-    headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    Ok(response)
+    Ok(([(header::CONTENT_TYPE, "application/x-ndjson")], body).into_response())
 }
 
-async fn replay_exists(
+async fn audit_replay_meta(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> AppResult<Json<Value>> {
-    let stat = state.replay.stat_session(&session_id).await?;
-    let mut value = serde_json::to_value(stat)?;
-    if let Value::Object(obj) = &mut value {
-        obj.insert("ok".to_string(), Value::Bool(true));
-    }
-    Ok(Json(value))
-}
-
-async fn replay_tabs(State(state): State<AppState>) -> Json<ReplayTabsResponse> {
-    Json(list_replay_tabs(&state.sessions, &state.tab_activity).await)
+    Ok(Json(serde_json::to_value(
+        state.replays.meta(&session_id).await?,
+    )?))
 }
 
 fn validate_limit(limit: Option<i64>, cap: i64) -> AppResult<()> {

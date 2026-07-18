@@ -1,12 +1,165 @@
 use sea_orm_migration::prelude::*;
 
-/// Applies the single audit schema snapshot migration.
+/// Applies the audit schema migrations.
 pub struct AuditMigrator;
 
 #[async_trait::async_trait]
 impl MigratorTrait for AuditMigrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m0001_baseline::Migration)]
+        vec![
+            Box::new(m0001_baseline::Migration),
+            Box::new(m0002_add_recordings_and_claims::Migration),
+        ]
+    }
+}
+
+mod m0002_add_recordings_and_claims {
+    use super::*;
+
+    pub struct Migration;
+
+    impl MigrationName for Migration {
+        fn name(&self) -> &str {
+            "m0002_add_recordings_and_claims"
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MigrationTrait for Migration {
+        async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+            manager
+                .create_table(
+                    Table::create()
+                        .table(TabRecordings::Table)
+                        .if_not_exists()
+                        .col(
+                            ColumnDef::new(TabRecordings::TargetId)
+                                .string()
+                                .not_null()
+                                .primary_key(),
+                        )
+                        .col(
+                            ColumnDef::new(TabRecordings::TabId)
+                                .big_integer()
+                                .not_null(),
+                        )
+                        .col(
+                            ColumnDef::new(TabRecordings::FirstEventAt)
+                                .big_integer()
+                                .not_null(),
+                        )
+                        .col(
+                            ColumnDef::new(TabRecordings::LastEventAt)
+                                .big_integer()
+                                .not_null(),
+                        )
+                        .col(
+                            ColumnDef::new(TabRecordings::SizeBytes)
+                                .big_integer()
+                                .not_null(),
+                        )
+                        .col(
+                            ColumnDef::new(TabRecordings::EventCount)
+                                .big_integer()
+                                .not_null(),
+                        )
+                        .to_owned(),
+                )
+                .await?;
+            manager
+                .create_index(
+                    Index::create()
+                        .name("tab_recordings_last_event_idx")
+                        .table(TabRecordings::Table)
+                        .col(TabRecordings::LastEventAt)
+                        .if_not_exists()
+                        .to_owned(),
+                )
+                .await?;
+            manager
+                .create_table(
+                    Table::create()
+                        .table(TabClaims::Table)
+                        .if_not_exists()
+                        .col(
+                            ColumnDef::new(TabClaims::Id)
+                                .big_integer()
+                                .not_null()
+                                .auto_increment()
+                                .primary_key(),
+                        )
+                        .col(ColumnDef::new(TabClaims::TargetId).string().not_null())
+                        .col(ColumnDef::new(TabClaims::SessionId).string().not_null())
+                        .col(ColumnDef::new(TabClaims::AgentId).string().not_null())
+                        .col(
+                            ColumnDef::new(TabClaims::ClaimedAt)
+                                .big_integer()
+                                .not_null(),
+                        )
+                        .col(ColumnDef::new(TabClaims::ReleasedAt).big_integer())
+                        .to_owned(),
+                )
+                .await?;
+            manager
+                .create_index(
+                    Index::create()
+                        .name("tab_claims_target_idx")
+                        .table(TabClaims::Table)
+                        .col(TabClaims::TargetId)
+                        .col(TabClaims::ClaimedAt)
+                        .if_not_exists()
+                        .to_owned(),
+                )
+                .await?;
+            manager
+                .create_index(
+                    Index::create()
+                        .name("tab_claims_session_idx")
+                        .table(TabClaims::Table)
+                        .col(TabClaims::SessionId)
+                        .if_not_exists()
+                        .to_owned(),
+                )
+                .await?;
+            Ok(())
+        }
+
+        async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+            manager
+                .drop_table(Table::drop().table(TabClaims::Table).if_exists().to_owned())
+                .await?;
+            manager
+                .drop_table(
+                    Table::drop()
+                        .table(TabRecordings::Table)
+                        .if_exists()
+                        .to_owned(),
+                )
+                .await?;
+            Ok(())
+        }
+    }
+
+    #[derive(DeriveIden)]
+    enum TabRecordings {
+        Table,
+        TargetId,
+        TabId,
+        FirstEventAt,
+        LastEventAt,
+        SizeBytes,
+        EventCount,
+    }
+
+    #[derive(DeriveIden)]
+    enum TabClaims {
+        Table,
+        Id,
+        TargetId,
+        SessionId,
+        AgentId,
+        ClaimedAt,
+        ReleasedAt,
     }
 }
 

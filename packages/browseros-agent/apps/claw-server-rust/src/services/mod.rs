@@ -2,10 +2,12 @@ pub mod agents;
 pub mod audit;
 pub mod browser;
 pub mod harness;
-pub mod replay;
+pub mod recordings;
+pub mod replays;
 pub mod screencast;
 pub mod screenshots;
 pub mod tab_activity;
+pub mod tab_targets;
 pub mod telemetry;
 
 pub(crate) fn now_epoch_ms() -> i64 {

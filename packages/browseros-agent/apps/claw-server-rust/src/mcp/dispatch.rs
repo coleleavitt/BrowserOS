@@ -5,7 +5,7 @@ use crate::{
     mcp::{effects, guards},
     sessions::Session,
 };
-use browseros_core::{BrowserSession, PageId};
+use browseros_core::{BrowserSession, PageId, pages::PageInfo};
 use browseros_mcp::{
     BrowserToolDefaults, BrowserToolOptions, OutputFileAccess, ToolCtx, ToolDef, ToolResult,
     execute_tool,
@@ -48,6 +48,8 @@ pub struct ToolCall {
     pub session_id: SessionId,
     pub identity: Option<ToolIdentity>,
     pub browser_session: Option<Arc<BrowserSession>>,
+    pub page_snapshot: Option<PageInfo>,
+    pub started_at_ms: i64,
     pub cancel: CancellationToken,
     pub client_cancel: CancellationToken,
     pub dispatch_cancel: CancellationToken,
@@ -107,6 +109,8 @@ impl ToolCall {
             session_id,
             identity,
             browser_session,
+            page_snapshot: None,
+            started_at_ms: crate::services::now_epoch_ms(),
             cancel,
             client_cancel,
             dispatch_cancel,
@@ -197,10 +201,13 @@ pub async fn dispatch_tool_call(call: ToolCall) -> Result<CallToolResult, McpErr
 }
 
 async fn dispatch_tool_call_with(
-    call: ToolCall,
+    mut call: ToolCall,
     guards: &[ToolGuard],
     effects: &[NamedToolEffect],
 ) -> Result<CallToolResult, McpError> {
+    if let (Some(browser), Some(page_id)) = (&call.browser_session, extract_page_id(&call)) {
+        call.page_snapshot = browser.pages.get_info(PageId(page_id)).await;
+    }
     if let Some(identity) = &call.identity {
         identity
             .session

@@ -3,8 +3,8 @@ use crate::{
         AuditDb,
         entities::{
             agent_session_ends, agent_session_starts,
-            prelude::{AgentSessionEnds, AgentSessionStarts, Tasks, ToolDispatches},
-            tasks, tool_dispatches,
+            prelude::{AgentSessionEnds, AgentSessionStarts, TabClaims, Tasks, ToolDispatches},
+            tab_claims, tasks, tool_dispatches,
         },
     },
     error::AppResult,
@@ -20,6 +20,8 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::Path;
+use tokio::sync::{mpsc, oneshot};
+use tracing::warn;
 use url::Url;
 
 pub use crate::db::audit::entities::tool_dispatches::Model as ToolDispatchRow;
@@ -29,6 +31,28 @@ const ARGS_JSON_MAX: usize = 4096;
 #[derive(Clone)]
 pub struct AuditService {
     db: AuditDb,
+    claim_writes: mpsc::UnboundedSender<ClaimWrite>,
+}
+
+#[derive(Debug)]
+enum ClaimWrite {
+    Claim {
+        target_id: String,
+        session_id: String,
+        agent_id: String,
+        claimed_at: i64,
+    },
+    ReleaseTargetForSession {
+        target_id: String,
+        session_id: String,
+    },
+    ReleaseSession {
+        session_id: String,
+    },
+    ReleaseTarget {
+        target_id: String,
+    },
+    Flush(oneshot::Sender<()>),
 }
 
 #[derive(Debug, Clone)]
@@ -208,11 +232,16 @@ pub struct ListTasksQuery {
 }
 
 impl AuditService {
-    /// Opens the audit store and applies its schema snapshot.
+    /// Opens the audit store and applies its migrations.
     pub async fn open(path: impl AsRef<Path>) -> AppResult<Self> {
-        Ok(Self {
-            db: AuditDb::open(path).await?,
-        })
+        let db = AuditDb::open(path).await?;
+        let (claim_writes, receiver) = mpsc::unbounded_channel();
+        tokio::spawn(run_claim_writes(db.clone(), receiver));
+        Ok(Self { db, claim_writes })
+    }
+
+    pub(crate) fn connection(&self) -> &sea_orm::DatabaseConnection {
+        self.db.connection()
     }
 
     /// Records a tool dispatch and refreshes its task summary atomically.
@@ -307,6 +336,96 @@ impl AuditService {
         recompute_task(&txn, session_id).await?;
         txn.commit().await?;
         Ok(())
+    }
+
+    /// Closes every open claim when CDP reports that its target was destroyed.
+    pub async fn release_claims_for_target(&self, target_id: &str) -> AppResult<u64> {
+        release_claims_for_target(self.db.connection(), target_id).await
+    }
+
+    /// Opens a claim window when a session begins driving a target.
+    pub async fn claim_target_for_session(
+        &self,
+        target_id: &str,
+        session_id: &str,
+        agent_id: &str,
+        claimed_at: i64,
+    ) -> AppResult<i64> {
+        claim_target_for_session(
+            self.db.connection(),
+            target_id,
+            session_id,
+            agent_id,
+            claimed_at,
+        )
+        .await
+    }
+
+    /// Closes this session's open claim after it closes the target.
+    pub async fn release_target_for_session(
+        &self,
+        target_id: &str,
+        session_id: &str,
+    ) -> AppResult<u64> {
+        release_target_for_session(self.db.connection(), target_id, session_id).await
+    }
+
+    /// Closes every open claim when an MCP session ends.
+    pub async fn release_claims_for_session(&self, session_id: &str) -> AppResult<u64> {
+        release_claims_for_session(self.db.connection(), session_id).await
+    }
+
+    pub fn enqueue_claim_target_for_session(
+        &self,
+        target_id: String,
+        session_id: String,
+        agent_id: String,
+        claimed_at: i64,
+    ) {
+        self.enqueue_claim_write(ClaimWrite::Claim {
+            target_id,
+            session_id,
+            agent_id,
+            claimed_at,
+        });
+    }
+
+    pub fn enqueue_release_target_for_session(&self, target_id: String, session_id: String) {
+        self.enqueue_claim_write(ClaimWrite::ReleaseTargetForSession {
+            target_id,
+            session_id,
+        });
+    }
+
+    pub fn enqueue_release_claims_for_session(&self, session_id: String) {
+        self.enqueue_claim_write(ClaimWrite::ReleaseSession { session_id });
+    }
+
+    pub fn enqueue_release_claims_for_target(&self, target_id: String) {
+        self.enqueue_claim_write(ClaimWrite::ReleaseTarget { target_id });
+    }
+
+    pub async fn drain_claim_writes(&self) {
+        let (done, receiver) = oneshot::channel();
+        if self.claim_writes.send(ClaimWrite::Flush(done)).is_ok() {
+            let _ = receiver.await;
+        }
+    }
+
+    fn enqueue_claim_write(&self, write: ClaimWrite) {
+        if let Err(error) = self.claim_writes.send(write) {
+            warn!(write = ?error.0, "claim write queue closed");
+        }
+    }
+
+    /// Closes claims left open across an unclean server shutdown.
+    pub async fn release_all_open_claims(&self) -> AppResult<u64> {
+        let result = TabClaims::update_many()
+            .col_expr(tab_claims::Column::ReleasedAt, Expr::value(now_epoch_ms()))
+            .filter(tab_claims::Column::ReleasedAt.is_null())
+            .exec(self.db.connection())
+            .await?;
+        Ok(result.rows_affected)
     }
 
     /// Lists dispatches using stable descending-id cursor pagination.
@@ -423,6 +542,115 @@ impl AuditService {
             end_event,
         }))
     }
+}
+
+async fn run_claim_writes(db: AuditDb, mut receiver: mpsc::UnboundedReceiver<ClaimWrite>) {
+    while let Some(write) = receiver.recv().await {
+        let write = match write {
+            ClaimWrite::Flush(done) => {
+                let _ = done.send(());
+                continue;
+            }
+            write => write,
+        };
+        let result = match &write {
+            ClaimWrite::Claim {
+                target_id,
+                session_id,
+                agent_id,
+                claimed_at,
+            } => claim_target_for_session(
+                db.connection(),
+                target_id,
+                session_id,
+                agent_id,
+                *claimed_at,
+            )
+            .await
+            .map(|_| ()),
+            ClaimWrite::ReleaseTargetForSession {
+                target_id,
+                session_id,
+            } => release_target_for_session(db.connection(), target_id, session_id)
+                .await
+                .map(|_| ()),
+            ClaimWrite::ReleaseSession { session_id } => {
+                release_claims_for_session(db.connection(), session_id)
+                    .await
+                    .map(|_| ())
+            }
+            ClaimWrite::ReleaseTarget { target_id } => {
+                release_claims_for_target(db.connection(), target_id)
+                    .await
+                    .map(|_| ())
+            }
+            ClaimWrite::Flush(_) => unreachable!(),
+        };
+        if let Err(error) = result {
+            warn!(write = ?write, error = %error, "claim write failed");
+        }
+    }
+}
+
+async fn claim_target_for_session(
+    db: &sea_orm::DatabaseConnection,
+    target_id: &str,
+    session_id: &str,
+    agent_id: &str,
+    claimed_at: i64,
+) -> AppResult<i64> {
+    let result = TabClaims::insert(tab_claims::ActiveModel {
+        id: NotSet,
+        target_id: Set(target_id.to_string()),
+        session_id: Set(session_id.to_string()),
+        agent_id: Set(agent_id.to_string()),
+        claimed_at: Set(claimed_at),
+        released_at: Set(None),
+    })
+    .exec(db)
+    .await?;
+    Ok(result.last_insert_id)
+}
+
+async fn release_target_for_session(
+    db: &sea_orm::DatabaseConnection,
+    target_id: &str,
+    session_id: &str,
+) -> AppResult<u64> {
+    let result = TabClaims::update_many()
+        .col_expr(tab_claims::Column::ReleasedAt, Expr::value(now_epoch_ms()))
+        .filter(tab_claims::Column::TargetId.eq(target_id))
+        .filter(tab_claims::Column::SessionId.eq(session_id))
+        .filter(tab_claims::Column::ReleasedAt.is_null())
+        .exec(db)
+        .await?;
+    Ok(result.rows_affected)
+}
+
+async fn release_claims_for_session(
+    db: &sea_orm::DatabaseConnection,
+    session_id: &str,
+) -> AppResult<u64> {
+    let result = TabClaims::update_many()
+        .col_expr(tab_claims::Column::ReleasedAt, Expr::value(now_epoch_ms()))
+        .filter(tab_claims::Column::SessionId.eq(session_id))
+        .filter(tab_claims::Column::ReleasedAt.is_null())
+        .exec(db)
+        .await?;
+    Ok(result.rows_affected)
+}
+
+async fn release_claims_for_target(
+    db: &sea_orm::DatabaseConnection,
+    target_id: &str,
+) -> AppResult<u64> {
+    let result = TabClaims::update_many()
+        .col_expr(tab_claims::Column::ReleasedAt, Expr::value(now_epoch_ms()))
+        .filter(tab_claims::Column::TargetId.eq(target_id))
+        .filter(tab_claims::Column::ReleasedAt.is_null())
+        .exec(db)
+        .await?;
+    Ok(result.rows_affected)
 }
 
 async fn recompute_task<C: ConnectionTrait>(conn: &C, session_id: &str) -> AppResult<()> {
@@ -643,6 +871,8 @@ mod tests {
     use super::{
         AuditService, DispatchResultSummary, ListTasksQuery, RecordToolDispatchInput, TaskStatus,
     };
+    use crate::db::audit::entities::prelude::TabClaims;
+    use sea_orm::EntityTrait;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -732,6 +962,27 @@ mod tests {
             .await?;
         assert_eq!(failed.tasks.len(), 1);
         assert_eq!(failed.tasks[0].session_id, "b1");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn queued_claim_mutations_preserve_lifecycle_order() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let audit = AuditService::open(dir.path().join("audit.sqlite")).await?;
+        audit.enqueue_claim_target_for_session(
+            "target-a".to_string(),
+            "session-a".to_string(),
+            "agent-a".to_string(),
+            100,
+        );
+        audit.enqueue_release_claims_for_session("session-a".to_string());
+        audit.drain_claim_writes().await;
+
+        let claim = TabClaims::find()
+            .one(audit.connection())
+            .await?
+            .unwrap_or_else(|| panic!("queued claim missing"));
+        assert!(claim.released_at.is_some());
         Ok(())
     }
 }

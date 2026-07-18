@@ -74,7 +74,8 @@ async fn record_dispatch(
     let live = match (&call.browser_session, page_id) {
         (Some(browser), Some(page_id)) => browser.pages.get_info(PageId(page_id)).await,
         _ => None,
-    };
+    }
+    .or_else(|| call.page_snapshot.clone());
     let content = serde_json::to_value(&result.content).unwrap_or_else(|error| {
         warn!(error = %error, "tool content serialization failed");
         json!([])
