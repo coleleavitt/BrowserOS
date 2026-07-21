@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use agent_mcp_manager::{
     AgentId, AgentScope, DisconnectInput, Error, LinkInput, ListLinksFilter, Manager, McpServer,
@@ -257,6 +262,120 @@ fn malformed_manifest_is_never_silently_reset() -> Result<(), Box<dyn std::error
     fs::write(workspace.join("manifest.json"), "{ broken")?;
     let manager = Manager::new(workspace);
     assert!(matches!(manager.list(), Err(Error::Manifest { .. })));
+    Ok(())
+}
+
+#[test]
+fn recent_catalog_path_fixes_match_typescript() -> Result<(), Box<dyn std::error::Error>> {
+    let opencode = resolve_agent_surface(AgentId::OpenCode, AgentScope::System)?.client;
+    assert_eq!(
+        opencode.install_check_paths.darwin,
+        &[
+            "$XDG_CONFIG_HOME/opencode",
+            "$HOME/.config/opencode",
+            "$HOME/.opencode",
+            "$HOME/.local/share/opencode",
+        ]
+    );
+    assert_eq!(
+        opencode.install_check_paths.linux,
+        &[
+            "$XDG_CONFIG_HOME/opencode",
+            "$HOME/.config/opencode",
+            "$HOME/.opencode",
+            "$HOME/.local/share/opencode",
+        ]
+    );
+    assert_eq!(
+        opencode.install_check_paths.windows,
+        &[
+            "$USERPROFILE\\.config\\opencode",
+            "$USERPROFILE\\.opencode",
+            "$USERPROFILE\\.local\\share\\opencode",
+        ]
+    );
+    assert_eq!(
+        opencode.system_paths.darwin,
+        &[
+            "$XDG_CONFIG_HOME/opencode/opencode.json",
+            "$HOME/.config/opencode/opencode.json",
+            "$XDG_CONFIG_HOME/opencode/opencode.jsonc",
+            "$HOME/.config/opencode/opencode.jsonc",
+            "$HOME/.opencode/opencode.jsonc",
+        ]
+    );
+
+    let antigravity = resolve_agent_surface(AgentId::Antigravity, AgentScope::System)?.client;
+    assert_eq!(
+        antigravity.install_check_paths.darwin,
+        &["$HOME/.gemini/antigravity"]
+    );
+    assert_eq!(
+        antigravity.system_paths.darwin,
+        &["$HOME/.gemini/config/mcp_config.json"]
+    );
+    assert_eq!(
+        antigravity.system_paths.linux,
+        &["$HOME/.gemini/config/mcp_config.json"]
+    );
+    assert_eq!(
+        antigravity.system_paths.windows,
+        &["$USERPROFILE\\.gemini\\config\\mcp_config.json"]
+    );
+    Ok(())
+}
+
+#[test]
+fn opencode_install_fingerprint_drives_probe_and_default_link_gate()
+-> Result<(), Box<dyn std::error::Error>> {
+    const CHILD_HOME: &str = "AGENT_MCP_MANAGER_OPENCODE_TEST_HOME";
+    if let Some(home) = env::var_os(CHILD_HOME) {
+        return exercise_opencode_install_fingerprint(&PathBuf::from(home));
+    }
+
+    let root = tempdir()?;
+    let output = Command::new(env::current_exe()?)
+        .args([
+            "--exact",
+            "opencode_install_fingerprint_drives_probe_and_default_link_gate",
+            "--nocapture",
+        ])
+        .env(CHILD_HOME, root.path())
+        .env("HOME", root.path())
+        .env("USERPROFILE", root.path())
+        .env("XDG_CONFIG_HOME", root.path().join(".config"))
+        .output()?;
+    if !output.status.success() {
+        return Err(std::io::Error::other(format!(
+            "isolated OpenCode regression failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn exercise_opencode_install_fingerprint(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    fs::create_dir_all(home.join(".local/share/opencode"))?;
+    assert_eq!(
+        is_installed(&[AgentId::OpenCode])?.get(&AgentId::OpenCode),
+        Some(&true)
+    );
+
+    let manager = Manager::new(home.join("manager-workspace"));
+    manager.link(LinkInput::new(stdio_server("browseros"), AgentId::OpenCode))?;
+    let config_path = home.join(".config/opencode/opencode.json");
+    let config: Value = serde_json::from_str(&fs::read_to_string(&config_path)?)?;
+    assert_eq!(config["mcp"]["browseros"]["command"][0], "browseros-mcp");
+
+    let override_path = home.join("custom/missing/opencode.json");
+    let mut explicit = LinkInput::new(stdio_server("strict"), AgentId::OpenCode);
+    explicit.config_path = Some(override_path.clone());
+    assert!(matches!(
+        manager.link(explicit),
+        Err(Error::AgentNotInstalled { config_path, .. }) if config_path == override_path
+    ));
     Ok(())
 }
 

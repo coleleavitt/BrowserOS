@@ -363,13 +363,19 @@ const OPENCODE: ClientConfig = ClientConfig {
             "$XDG_CONFIG_HOME/opencode",
             "$HOME/.config/opencode",
             "$HOME/.opencode",
+            "$HOME/.local/share/opencode",
         ],
         &[
             "$XDG_CONFIG_HOME/opencode",
             "$HOME/.config/opencode",
             "$HOME/.opencode",
+            "$HOME/.local/share/opencode",
         ],
-        &["$USERPROFILE\\.config\\opencode", "$USERPROFILE\\.opencode"],
+        &[
+            "$USERPROFILE\\.config\\opencode",
+            "$USERPROFILE\\.opencode",
+            "$USERPROFILE\\.local\\share\\opencode",
+        ],
     ),
     system_paths: paths(
         &[
@@ -431,9 +437,9 @@ const ANTIGRAVITY: ClientConfig = ClientConfig {
         &["$USERPROFILE\\.gemini\\antigravity"],
     ),
     system_paths: paths(
-        &["$HOME/.gemini/antigravity/mcp_config.json"],
-        &["$HOME/.gemini/antigravity/mcp_config.json"],
-        &["$USERPROFILE\\.gemini\\antigravity\\mcp_config.json"],
+        &["$HOME/.gemini/config/mcp_config.json"],
+        &["$HOME/.gemini/config/mcp_config.json"],
+        &["$USERPROFILE\\.gemini\\config\\mcp_config.json"],
     ),
     project_file: None,
     format: ConfigFormat::Json,
@@ -454,7 +460,7 @@ const ANTIGRAVITY: ClientConfig = ClientConfig {
         first_party: "https://antigravity.google/",
         smithery: Some(SMITHERY_URL),
         notes: Some(
-            "Google's Antigravity editor. Uses `serverUrl` for remote entries (matches Windsurf's convention).",
+            "Google's Antigravity editor. Config lives at `~/.gemini/config/mcp_config.json` (schema id: https://antigravity.google/schemas/mcp_config.json). Uses `serverUrl` for remote entries (matches Windsurf's convention).",
         ),
         verified: VERIFIED,
     },
@@ -523,13 +529,17 @@ pub fn resolve_agent_mcp_config_path(agent: AgentId, scope: AgentScope) -> Resul
     })
 }
 
+pub(crate) fn has_install_fingerprint(agent: AgentId) -> Result<bool, Error> {
+    let checks = selected_os_paths(&get_catalog_entry(agent).install_check_paths);
+    any_exists(checks)
+}
+
 /// Reports catalog install checks separately from config-path writability.
 pub fn detect_installed_agents() -> Result<Vec<AgentInfo>, Error> {
     CATALOG
         .iter()
         .map(|entry| {
-            let checks = selected_os_paths(&entry.install_check_paths);
-            let installed = any_exists(checks)?;
+            let installed = has_install_fingerprint(entry.id)?;
             let config_path = resolve_agent_mcp_config_path(entry.id, AgentScope::System).ok();
             Ok(AgentInfo {
                 id: entry.id,
