@@ -9,6 +9,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{HeaderMap, Request, StatusCode, header},
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use browseros_cdp::{CdpError, CdpEvent, SessionId as CdpSessionId};
 use browseros_core::{BrowserSession, BrowserSessionHooks, CdpConnection, TargetId};
 use claw_server_rust::{
@@ -17,7 +18,7 @@ use claw_server_rust::{
     db::audit_log::{DispatchResultSummary, RecordToolDispatchInput},
     identity::{ClientIdentity, ConversationIdentity},
     ids::{DispatchId, ProfileId, SessionId},
-    services::cockpit::{RecordToolInput, ScreencastFrame},
+    services::cockpit::RecordToolInput,
     services::sessions::Session,
 };
 use futures_util::future::BoxFuture;
@@ -47,6 +48,7 @@ struct FixtureConnection {
     get_tabs_calls: AtomicUsize,
     fail_next_get_tabs: AtomicBool,
     next_get_tabs_gate: tokio::sync::Mutex<Option<Arc<GetTabsGate>>>,
+    capture_calls: AtomicUsize,
 }
 
 struct GetTabsGate {
@@ -73,6 +75,7 @@ impl FixtureConnection {
             get_tabs_calls: AtomicUsize::new(0),
             fail_next_get_tabs: AtomicBool::new(false),
             next_get_tabs_gate: tokio::sync::Mutex::new(None),
+            capture_calls: AtomicUsize::new(0),
         })
     }
 
@@ -82,6 +85,10 @@ impl FixtureConnection {
 
     fn get_tabs_calls(&self) -> usize {
         self.get_tabs_calls.load(Ordering::SeqCst)
+    }
+
+    fn capture_calls(&self) -> usize {
+        self.capture_calls.load(Ordering::SeqCst)
     }
 
     fn fail_next_get_tabs(&self) {
@@ -103,19 +110,6 @@ impl FixtureConnection {
             .await
             .retain(|tab| tab["tabId"].as_i64() != Some(tab_id));
     }
-
-    async fn update_tab(&self, tab_id: i64, target_id: &str, url: &str, title: &str) {
-        let mut tabs = self.tabs.lock().await;
-        let Some(Value::Object(tab)) = tabs
-            .iter_mut()
-            .find(|tab| tab["tabId"].as_i64() == Some(tab_id))
-        else {
-            return;
-        };
-        tab.insert("targetId".to_string(), json!(target_id));
-        tab.insert("url".to_string(), json!(url));
-        tab.insert("title".to_string(), json!(title));
-    }
 }
 
 impl CdpConnection for FixtureConnection {
@@ -123,7 +117,7 @@ impl CdpConnection for FixtureConnection {
         &'a self,
         method: &'a str,
         params: Value,
-        _session: Option<&'a CdpSessionId>,
+        session: Option<&'a CdpSessionId>,
     ) -> BoxFuture<'a, Result<Value, CdpError>> {
         Box::pin(async move {
             match method {
@@ -156,6 +150,18 @@ impl CdpConnection for FixtureConnection {
                             message: "tab not found".to_string(),
                         })?;
                     Ok(json!({ "tab": tab }))
+                }
+                "Target.attachToTarget" => Ok(json!({
+                    "sessionId": format!(
+                        "session-{}",
+                        params["targetId"].as_str().unwrap_or("missing")
+                    )
+                })),
+                "Page.captureScreenshot" => {
+                    let call = self.capture_calls.fetch_add(1, Ordering::SeqCst) + 1;
+                    let target = session.map(CdpSessionId::as_str).unwrap_or("missing");
+                    let marker = if target == "session-target-7" { 7 } else { 8 };
+                    Ok(json!({ "data": BASE64_STANDARD.encode([0xff, 0xd8, marker, call as u8]) }))
                 }
                 _ => Ok(json!({})),
             }
@@ -232,7 +238,6 @@ async fn test_app() -> anyhow::Result<TestApp> {
         session_retention: Duration::from_secs(7_200),
         session_sweep_interval: Duration::from_secs(60),
         replay_retention_days: 7,
-        screencast_screenshot_fallback: true,
         dev_mode: false,
         auth_token: None,
     });
@@ -338,7 +343,10 @@ async fn seed_dispatch(app: &TestApp, session_id: &str) -> anyhow::Result<i64> {
 #[tokio::test]
 async fn retired_rest_routes_are_unmounted() -> anyhow::Result<()> {
     let app = test_app().await?;
-    for (method, path) in [
+    let retired_browser_tab_preview =
+        ["/api/v1/sessions/session-1", "browser-tabs", "7", "preview"].join("/");
+    let retired_dispatch_screenshot = ["/api/v1", "dispatches", "1", "screenshot"].join("/");
+    let mut routes = vec![
         ("GET", "/system/version"),
         ("GET", "/system/url"),
         ("GET", "/system/telemetry"),
@@ -358,7 +366,10 @@ async fn retired_rest_routes_are_unmounted() -> anyhow::Result<()> {
         ("POST", "/recordings/tabs/1/events"),
         ("GET", "/audit/replays/session-1"),
         ("GET", "/audit/replays/session-1/meta"),
-    ] {
+    ];
+    routes.push(("GET", retired_browser_tab_preview.as_str()));
+    routes.push(("GET", retired_dispatch_screenshot.as_str()));
+    for (method, path) in routes {
         let (status, _, bytes) = request(&app.router, method, path, None, Body::empty()).await?;
         assert_eq!(status, StatusCode::NOT_FOUND, "{method} {path}");
         assert!(bytes.is_empty(), "{method} {path} reached a JSON handler");
@@ -422,7 +433,7 @@ async fn canonical_sessions_cancel_and_recordings() -> anyhow::Result<()> {
     let detail = json_body(&bytes)?;
     assert_eq!(detail["session"]["name"], "research-browserclaw");
     assert_eq!(detail["dispatches"][0]["dispatchId"], 1);
-    assert_eq!(detail["dispatches"][0]["hasScreenshot"], false);
+    assert!(detail["dispatches"][0].get("screenshotId").is_none());
     assert!(detail["dispatches"][0].get("agentId").is_none());
     assert!(detail["dispatches"][0].get("url").is_none());
 
@@ -730,7 +741,7 @@ struct LiveFixture {
     primary: Arc<Session>,
     second: Arc<Session>,
     zero_tab: Arc<Session>,
-    screenshot_dispatch_id: i64,
+    screenshot_id: i64,
 }
 
 async fn seed_live_fixture(app: &TestApp) -> anyhow::Result<LiveFixture> {
@@ -809,28 +820,20 @@ async fn seed_live_fixture(app: &TestApp) -> anyhow::Result<LiveFixture> {
             0,
         );
     }
-    app.state
-        .previews
-        .cache_frame(
-            primary.id().as_str(),
-            7,
-            "target-7",
-            ScreencastFrame {
-                jpeg_base64: "/9g=".to_string(),
-                captured_at: 123,
-            },
-        )
-        .await;
-    app.state
+    let legacy_screenshot = app
+        .state
         .screenshots
-        .write(&screenshot_dispatch_id.to_string(), &[0xff, 0xd8])
-        .await?;
+        .legacy_path_for(screenshot_dispatch_id);
+    if let Some(parent) = legacy_screenshot.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(legacy_screenshot, [0xff, 0xd8]).await?;
     app.connection.reset_get_tabs_calls();
     Ok(LiveFixture {
         primary,
         second,
         zero_tab,
-        screenshot_dispatch_id,
+        screenshot_id: screenshot_dispatch_id,
     })
 }
 
@@ -888,7 +891,6 @@ async fn live_projection_includes_zero_tab_and_same_profile_sessions() -> anyhow
     assert_eq!(primary["live"]["state"], "active");
     assert_eq!(primary["live"]["browserTabs"][0]["browserTabId"], 101);
     assert_eq!(primary["live"]["browserTabs"][0]["toolCount"], 1);
-    assert_eq!(primary["live"]["browserTabs"][0]["previewCapturedAt"], 123);
     assert_eq!(primary["live"]["browserTabs"][1]["browserTabId"], 102);
     assert_eq!(primary["live"]["browserTabs"][1]["toolCount"], 0);
     assert_eq!(primary["live"]["browserTabs"][1]["recentTools"], json!([]));
@@ -997,110 +999,98 @@ async fn open_claims_reconcile_closed_and_reassigned_browser_tabs() -> anyhow::R
 }
 
 #[tokio::test]
-async fn secure_preview_is_owned_fail_closed_and_cache_only() -> anyhow::Result<()> {
+async fn session_preview_is_owned_fresh_and_no_store() -> anyhow::Result<()> {
     let app = test_app().await?;
     let fixture = seed_live_fixture(&app).await?;
-    assert_eq!(app.state.previews.last_read_at_for_testing(), 0);
 
-    let preview_path = format!(
-        "/api/v1/sessions/{}/browser-tabs/101/preview",
-        fixture.primary.id().as_str()
-    );
+    let preview_path = format!("/api/v1/sessions/{}/preview", fixture.primary.id().as_str());
     let (status, headers, bytes) =
         request(&app.router, "GET", &preview_path, None, Body::empty()).await?;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
-    assert_eq!(bytes, vec![0xff, 0xd8]);
-    assert_eq!(app.state.previews.last_read_at_for_testing(), 0);
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-store");
+    assert_eq!(bytes, vec![0xff, 0xd8, 7, 1]);
+
+    let (status, _, second) =
+        request(&app.router, "GET", &preview_path, None, Body::empty()).await?;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(second, vec![0xff, 0xd8, 7, 2]);
+    assert_eq!(app.connection.capture_calls(), 2);
 
     let failures = [
+        format!("/api/v1/sessions/{}/preview", fixture.second.id().as_str()),
         format!(
-            "/api/v1/sessions/{}/browser-tabs/101/preview",
-            fixture.second.id().as_str()
+            "/api/v1/sessions/{}/preview",
+            fixture.zero_tab.id().as_str()
         ),
-        "/api/v1/sessions/missing/browser-tabs/101/preview".to_string(),
-        format!(
-            "/api/v1/sessions/{}/browser-tabs/999/preview",
-            fixture.primary.id().as_str()
-        ),
+        "/api/v1/sessions/missing/preview".to_string(),
     ];
-    let mut failure_shape = None;
     for path in failures {
         let (status, _, bytes) = request(&app.router, "GET", &path, None, Body::empty()).await?;
         assert_eq!(status, StatusCode::NOT_FOUND, "GET {path}");
         let body = json_body(&bytes)?;
-        let shape = (body["code"].clone(), body["message"].clone());
-        assert_eq!(shape.0, "preview_not_found");
-        assert_eq!(shape.1, "browser tab preview not found");
-        assert_eq!(failure_shape.get_or_insert_with(|| shape.clone()), &shape);
+        assert_eq!(body["code"], "preview_not_found");
+        assert_eq!(body["message"], "session preview not found");
     }
 
-    app.state.session_tabs.enqueue_claim_tab_for_session(
-        101,
-        Some("target-7".to_string()),
-        fixture.second.id().as_str().to_string(),
-        fixture.second.convo_id().as_str().to_string(),
-        200,
-    );
+    assert_eq!(app.connection.capture_calls(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn session_preview_selects_most_recent_owned_tab_deterministically() -> anyhow::Result<()> {
+    let app = test_app().await?;
+    let fixture = seed_live_fixture(&app).await?;
+    app.state.tab_activity.set_now_for_testing(100);
+    app.state
+        .tab_activity
+        .record_tool(RecordToolInput {
+            target_id: TargetId::from("target-8".to_string()),
+            tab_id: 102,
+            page_id: 8,
+            session_id: fixture.primary.id().as_str().to_string(),
+            agent_id: fixture.primary.convo_id().as_str().to_string(),
+            slug: "codex".to_string(),
+            tool_name: "read".to_string(),
+        })
+        .await;
+
+    let preview_path = format!("/api/v1/sessions/{}/preview", fixture.primary.id().as_str());
     let (status, _, bytes) =
         request(&app.router, "GET", &preview_path, None, Body::empty()).await?;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(json_body(&bytes)?["code"], "preview_not_found");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, vec![0xff, 0xd8, 7, 1]);
 
-    app.connection
-        .update_tab(101, "target-reused", "https://example.com/reused", "Reused")
+    app.state.tab_activity.set_now_for_testing(200);
+    app.state
+        .tab_activity
+        .record_tool(RecordToolInput {
+            target_id: TargetId::from("target-8".to_string()),
+            tab_id: 102,
+            page_id: 8,
+            session_id: fixture.primary.id().as_str().to_string(),
+            agent_id: fixture.primary.convo_id().as_str().to_string(),
+            slug: "codex".to_string(),
+            tool_name: "snapshot".to_string(),
+        })
         .await;
-    let reassigned_path = format!(
-        "/api/v1/sessions/{}/browser-tabs/101/preview",
-        fixture.second.id().as_str()
-    );
     let (status, _, bytes) =
-        request(&app.router, "GET", &reassigned_path, None, Body::empty()).await?;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(json_body(&bytes)?["code"], "preview_not_found");
-
-    let (status, _, _) = request(
-        &app.router,
-        "GET",
-        "/api/v1/sessions?status=live",
-        None,
-        Body::empty(),
-    )
-    .await?;
+        request(&app.router, "GET", &preview_path, None, Body::empty()).await?;
     assert_eq!(status, StatusCode::OK);
-    assert!(app.state.previews.last_read_at_for_testing() > 0);
+    assert_eq!(bytes, vec![0xff, 0xd8, 8, 2]);
 
-    let screenshot_path = format!(
-        "/api/v1/dispatches/{}/screenshot",
-        fixture.screenshot_dispatch_id
+    app.state.session_tabs.enqueue_claim_tab_for_session(
+        102,
+        Some("target-8".to_string()),
+        fixture.second.id().as_str().to_string(),
+        fixture.second.convo_id().as_str().to_string(),
+        300,
     );
-    let (status, headers, bytes) =
-        request(&app.router, "GET", &screenshot_path, None, Body::empty()).await?;
+    app.state.session_tabs.drain_writes().await;
+    let (status, _, bytes) =
+        request(&app.router, "GET", &preview_path, None, Body::empty()).await?;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
-    assert_eq!(bytes, vec![0xff, 0xd8]);
-
-    for (path, expected_status, code) in [
-        (
-            "/api/v1/sessions?limit=0",
-            StatusCode::BAD_REQUEST,
-            "invalid_request",
-        ),
-        (
-            "/api/v1/sessions/session-live/browser-tabs/0/preview",
-            StatusCode::BAD_REQUEST,
-            "invalid_request",
-        ),
-        (
-            "/api/v1/dispatches/999/screenshot",
-            StatusCode::NOT_FOUND,
-            "screenshot_not_found",
-        ),
-    ] {
-        let (status, _, bytes) = request(&app.router, "GET", path, None, Body::empty()).await?;
-        assert_eq!(status, expected_status, "GET {path}");
-        assert_eq!(json_body(&bytes)?["code"], code, "GET {path}");
-    }
+    assert_eq!(bytes, vec![0xff, 0xd8, 7, 3]);
     Ok(())
 }
 
@@ -1110,10 +1100,7 @@ async fn preview_rejects_disconnected_session_after_browser_reconciliation() -> 
     let fixture = seed_live_fixture(&app).await?;
     let gate = app.connection.gate_next_get_tabs().await;
     let router = app.router.clone();
-    let preview_path = format!(
-        "/api/v1/sessions/{}/browser-tabs/101/preview",
-        fixture.primary.id().as_str()
-    );
+    let preview_path = format!("/api/v1/sessions/{}/preview", fixture.primary.id().as_str());
     let preview =
         tokio::spawn(
             async move { request(&router, "GET", &preview_path, None, Body::empty()).await },
@@ -1152,175 +1139,85 @@ async fn preview_rejects_disconnected_session_after_browser_reconciliation() -> 
 }
 
 #[tokio::test]
-async fn preview_rejects_ownership_transfer_during_frame_lookup() -> anyhow::Result<()> {
+async fn session_preview_rejects_session_without_open_targets() -> anyhow::Result<()> {
     let app = test_app().await?;
     let fixture = seed_live_fixture(&app).await?;
-    let gate = app.state.previews.gate_next_frame_read_for_testing();
-    let router = app.router.clone();
-    let preview_path = format!(
-        "/api/v1/sessions/{}/browser-tabs/101/preview",
-        fixture.primary.id().as_str()
-    );
-    let preview =
-        tokio::spawn(
-            async move { request(&router, "GET", &preview_path, None, Body::empty()).await },
-        );
+    app.connection.remove_tab(101).await;
+    app.connection.remove_tab(102).await;
 
-    gate.wait_until_entered().await;
-    assert_eq!(app.connection.get_tabs_calls(), 1);
-    app.state.session_tabs.enqueue_claim_tab_for_session(
-        101,
-        Some("target-7".to_string()),
-        fixture.second.id().as_str().to_string(),
-        fixture.second.convo_id().as_str().to_string(),
-        200,
-    );
-    app.state.session_tabs.drain_writes().await;
-    assert!(
-        app.state
-            .session_tabs
-            .open_session_tab(fixture.primary.id().as_str(), 101)
-            .await?
-            .is_none()
-    );
-    assert!(
-        app.state
-            .session_tabs
-            .open_session_tab(fixture.second.id().as_str(), 101)
-            .await?
-            .is_some()
-    );
-
-    gate.release();
-    let (status, _, bytes) = preview.await??;
+    let path = format!("/api/v1/sessions/{}/preview", fixture.primary.id().as_str());
+    let (status, _, bytes) = request(&app.router, "GET", &path, None, Body::empty()).await?;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(json_body(&bytes)?["code"], "preview_not_found");
-    assert_ne!(bytes, vec![0xff, 0xd8]);
+    assert_eq!(app.connection.capture_calls(), 0);
     Ok(())
 }
 
 #[tokio::test]
-async fn transferred_session_cannot_read_prior_owner_frame() -> anyhow::Result<()> {
+async fn session_screenshot_history_is_ordered_owned_and_immutable() -> anyhow::Result<()> {
     let app = test_app().await?;
     let fixture = seed_live_fixture(&app).await?;
-    app.state.session_tabs.enqueue_claim_tab_for_session(
-        101,
-        Some("target-7".to_string()),
-        fixture.second.id().as_str().to_string(),
-        fixture.second.convo_id().as_str().to_string(),
-        200,
+    let collection = format!(
+        "/api/v1/sessions/{}/screenshots",
+        fixture.primary.id().as_str()
     );
-    app.state.session_tabs.drain_writes().await;
-
-    let (status, _, bytes) = request(
-        &app.router,
-        "GET",
-        "/api/v1/sessions?status=live",
-        None,
-        Body::empty(),
-    )
-    .await?;
+    let (status, _, bytes) = request(&app.router, "GET", &collection, None, Body::empty()).await?;
     assert_eq!(status, StatusCode::OK);
     let body = json_body(&bytes)?;
-    let second = session_item(&body, fixture.second.id().as_str())?;
-    assert_eq!(second["live"]["browserTabs"][0]["browserTabId"], 101);
-    assert!(
-        second["live"]["browserTabs"][0]
-            .get("previewCapturedAt")
-            .is_none()
+    assert_eq!(body["items"].as_array().map(Vec::len), Some(1));
+    assert_eq!(body["items"][0]["screenshotId"], fixture.screenshot_id);
+    assert_eq!(body["items"][0]["toolName"], "snapshot");
+    assert!(body["items"][0]["capturedAt"].is_i64());
+
+    let detail_path = format!("/api/v1/sessions/{}", fixture.primary.id().as_str());
+    let (status, _, bytes) = request(&app.router, "GET", &detail_path, None, Body::empty()).await?;
+    assert_eq!(status, StatusCode::OK);
+    let detail = json_body(&bytes)?;
+    assert_eq!(
+        detail["session"]["latestScreenshotId"],
+        fixture.screenshot_id
+    );
+    assert_eq!(
+        detail["dispatches"][0]["screenshotId"],
+        fixture.screenshot_id
     );
 
-    let preview_path = format!(
-        "/api/v1/sessions/{}/browser-tabs/101/preview",
-        fixture.second.id().as_str()
+    let item = format!("{collection}/{}", fixture.screenshot_id);
+    let (status, headers, bytes) = request(&app.router, "GET", &item, None, Body::empty()).await?;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
+    assert_eq!(
+        headers[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
     );
+    assert_eq!(bytes, vec![0xff, 0xd8]);
+
+    for path in [
+        format!(
+            "/api/v1/sessions/{}/screenshots/{}",
+            fixture.second.id().as_str(),
+            fixture.screenshot_id
+        ),
+        format!("{collection}/999"),
+    ] {
+        let (status, _, bytes) = request(&app.router, "GET", &path, None, Body::empty()).await?;
+        assert_eq!(status, StatusCode::NOT_FOUND, "GET {path}");
+        assert_eq!(json_body(&bytes)?["code"], "screenshot_not_found");
+    }
+
+    for path in [format!("{collection}/0"), format!("{collection}/invalid")] {
+        let (status, _, bytes) = request(&app.router, "GET", &path, None, Body::empty()).await?;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "GET {path}");
+        assert_eq!(json_body(&bytes)?["code"], "invalid_request");
+    }
+
+    let missing_file_id = seed_dispatch(&app, fixture.primary.id().as_str()).await?;
+    app.state.audit_log.mark_screenshot(missing_file_id).await?;
+    let missing_file = format!("{collection}/{missing_file_id}");
     let (status, _, bytes) =
-        request(&app.router, "GET", &preview_path, None, Body::empty()).await?;
+        request(&app.router, "GET", &missing_file, None, Body::empty()).await?;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    let body = json_body(&bytes)?;
-    assert_eq!(body["code"], "preview_not_found");
-    assert_eq!(body["message"], "browser tab preview not found");
-    Ok(())
-}
-
-#[tokio::test]
-async fn preview_rejects_target_rebind_during_frame_lookup() -> anyhow::Result<()> {
-    let app = test_app().await?;
-    let fixture = seed_live_fixture(&app).await?;
-    let gate = app.state.previews.gate_next_frame_read_for_testing();
-    let router = app.router.clone();
-    let preview_path = format!(
-        "/api/v1/sessions/{}/browser-tabs/101/preview",
-        fixture.primary.id().as_str()
-    );
-    let preview =
-        tokio::spawn(
-            async move { request(&router, "GET", &preview_path, None, Body::empty()).await },
-        );
-
-    gate.wait_until_entered().await;
-    assert_eq!(app.connection.get_tabs_calls(), 1);
-    app.connection
-        .update_tab(101, "target-rebound", "https://example.com/new", "New")
-        .await;
-    gate.release();
-
-    let (status, _, bytes) = preview.await??;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    let body = json_body(&bytes)?;
-    assert_eq!(body["code"], "preview_not_found");
-    assert_eq!(body["message"], "browser tab preview not found");
-    Ok(())
-}
-
-#[tokio::test]
-async fn preview_rejects_transfer_during_final_page_reconciliation() -> anyhow::Result<()> {
-    let app = test_app().await?;
-    let fixture = seed_live_fixture(&app).await?;
-    let frame_gate = app.state.previews.gate_next_frame_read_for_testing();
-    let router = app.router.clone();
-    let preview_path = format!(
-        "/api/v1/sessions/{}/browser-tabs/101/preview",
-        fixture.primary.id().as_str()
-    );
-    let preview =
-        tokio::spawn(
-            async move { request(&router, "GET", &preview_path, None, Body::empty()).await },
-        );
-
-    frame_gate.wait_until_entered().await;
-    let pages_gate = app.connection.gate_next_get_tabs().await;
-    frame_gate.release();
-    pages_gate.wait_until_entered().await;
-    app.state.session_tabs.enqueue_claim_tab_for_session(
-        101,
-        Some("target-7".to_string()),
-        fixture.second.id().as_str().to_string(),
-        fixture.second.convo_id().as_str().to_string(),
-        200,
-    );
-    app.state.session_tabs.drain_writes().await;
-    assert!(
-        app.state
-            .session_tabs
-            .open_session_tab(fixture.primary.id().as_str(), 101)
-            .await?
-            .is_none()
-    );
-    assert!(
-        app.state
-            .session_tabs
-            .open_session_tab(fixture.second.id().as_str(), 101)
-            .await?
-            .is_some()
-    );
-    pages_gate.release();
-
-    let (status, _, bytes) = preview.await??;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    let body = json_body(&bytes)?;
-    assert_eq!(body["code"], "preview_not_found");
-    assert_eq!(body["message"], "browser tab preview not found");
+    assert_eq!(json_body(&bytes)?["code"], "screenshot_not_found");
     Ok(())
 }
 

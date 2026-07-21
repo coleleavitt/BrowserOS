@@ -18,10 +18,10 @@ use tracing::{Instrument, info_span};
 use ulid::Ulid;
 
 mod connections;
-mod dispatches;
 mod previews;
 mod recordings;
 mod replay;
+mod screenshots;
 mod sessions;
 mod settings;
 mod system;
@@ -40,12 +40,20 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/v1/sessions", get(sessions::list))
         .route("/api/v1/sessions/{session_id}", get(sessions::get))
         .route(
-            "/api/v1/sessions/{session_id}/browser-tabs/{browser_tab_id}/preview",
+            "/api/v1/sessions/{session_id}/preview",
             get(previews::preview),
         )
         .route(
             "/api/v1/sessions/{session_id}/cancel",
             post(sessions::cancel),
+        )
+        .route(
+            "/api/v1/sessions/{session_id}/screenshots",
+            get(screenshots::list),
+        )
+        .route(
+            "/api/v1/sessions/{session_id}/screenshots/{screenshot_id}",
+            get(screenshots::get),
         )
         .route(
             "/api/v1/sessions/{session_id}/recording",
@@ -59,10 +67,6 @@ pub fn router(state: AppState) -> Router<AppState> {
             "/api/v1/recordings/events",
             post(recordings::append_document_events)
                 .layer(DefaultBodyLimit::max(RECORDING_INGEST_MAX_BYTES)),
-        )
-        .route(
-            "/api/v1/dispatches/{dispatch_id}/screenshot",
-            get(dispatches::screenshot),
         )
         .route("/api/v1/connections", get(connections::list))
         .route(

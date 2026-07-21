@@ -14,7 +14,7 @@ use claw_server_rust::{
     db::audit_log::{DispatchResultSummary, RecordToolDispatchInput},
     identity::{ClientIdentity, ConversationIdentity},
     ids::{DispatchId, ProfileId, SessionId},
-    services::cockpit::{RecordToolInput, ScreencastFrame},
+    services::cockpit::RecordToolInput,
     services::sessions::Session,
 };
 use futures_util::future::BoxFuture;
@@ -140,7 +140,6 @@ async fn main() -> anyhow::Result<()> {
         session_retention: Duration::from_secs(7_200),
         session_sweep_interval: Duration::from_secs(60),
         replay_retention_days: 7,
-        screencast_screenshot_fallback: true,
         dev_mode: false,
         auth_token: None,
     });
@@ -219,6 +218,11 @@ async fn seed(state: &AppState) -> anyhow::Result<()> {
         .await?;
     let dispatch_id = seed_dispatch(state, "session-live", 7, "target-7").await?;
     state.audit_log.mark_screenshot(dispatch_id).await?;
+    let second_screenshot_id = seed_dispatch(state, "session-live", 7, "target-7").await?;
+    state
+        .audit_log
+        .mark_screenshot(second_screenshot_id)
+        .await?;
     state
         .audit_log
         .record_session_start(
@@ -295,20 +299,12 @@ async fn seed(state: &AppState) -> anyhow::Result<()> {
     );
     state.session_tabs.drain_writes().await;
     state
-        .previews
-        .cache_frame(
-            "session-live",
-            7,
-            "target-7",
-            ScreencastFrame {
-                jpeg_base64: "/9g=".to_string(),
-                captured_at: 123,
-            },
-        )
-        .await;
+        .screenshots
+        .write("session-live", dispatch_id, &[0xff, 0xd8])
+        .await?;
     state
         .screenshots
-        .write(&dispatch_id.to_string(), &[0xff, 0xd8])
+        .write("session-live", second_screenshot_id, &[0xff, 0xd8])
         .await?;
     Ok(())
 }
