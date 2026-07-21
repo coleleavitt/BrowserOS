@@ -5,8 +5,8 @@
  * `contract-server` example (claw-server-rust), which seeds real app
  * state to the same shape.
  *
- * The fixtures here — two same-profile live sessions, one zero-tab live
- * session, one ended session, browser tab 101, and two session screenshots
+ * The fixtures here — two dispatch-backed live sessions, one handshake-only
+ * connected session, one ended session, browser tab 101, and two screenshots
  * must stay in lockstep with the Rust example's `seed()`:
  * the cases assert the same values against both servers.
  */
@@ -34,7 +34,7 @@ export interface ContractServer {
   api: ContractHttpClient
   liveSessionId: string
   secondLiveSessionId: string
-  zeroTabLiveSessionId: string
+  handshakeOnlySessionId: string
   endedSessionId: string
   screenshotIds: readonly [number, number]
   stop(): Promise<void>
@@ -107,7 +107,7 @@ const secondLiveSession = {
   },
 }
 
-const zeroTabLiveSession = {
+const handshakeOnlySession = {
   ...primarySession,
   sessionId: 'session-live-empty',
   profileId: 'profile-empty',
@@ -168,7 +168,7 @@ export async function startTypeScriptServer(): Promise<ContractServer> {
     sessions: createSessionHandlers({
       listSessions: (query) =>
         query.status === 'live'
-          ? { items: [liveSession, secondLiveSession, zeroTabLiveSession] }
+          ? { items: [liveSession, secondLiveSession] }
           : { items: [primarySession, endedSession] },
       getSession: (sessionId) =>
         sessionId === primarySession.sessionId
@@ -206,7 +206,7 @@ export async function startTypeScriptServer(): Promise<ContractServer> {
         if (
           sessionId === primarySession.sessionId ||
           sessionId === secondLiveSession.sessionId ||
-          sessionId === zeroTabLiveSession.sessionId
+          sessionId === handshakeOnlySession.sessionId
         ) {
           return 'live'
         }
@@ -280,7 +280,7 @@ export async function startTypeScriptServer(): Promise<ContractServer> {
         }
         return [
           secondLiveSession.sessionId,
-          zeroTabLiveSession.sessionId,
+          handshakeOnlySession.sessionId,
           endedSession.sessionId,
         ].includes(sessionId)
           ? { items: [] }
@@ -321,7 +321,7 @@ export async function startTypeScriptServer(): Promise<ContractServer> {
     api: new ContractHttpClient(baseUrl),
     liveSessionId: primarySession.sessionId,
     secondLiveSessionId: secondLiveSession.sessionId,
-    zeroTabLiveSessionId: zeroTabLiveSession.sessionId,
+    handshakeOnlySessionId: handshakeOnlySession.sessionId,
     endedSessionId: endedSession.sessionId,
     screenshotIds: [1, 2],
     async stop() {
@@ -384,7 +384,7 @@ export async function startRustServer(): Promise<ContractServer> {
     api: new ContractHttpClient(baseUrl),
     liveSessionId: primarySession.sessionId,
     secondLiveSessionId: secondLiveSession.sessionId,
-    zeroTabLiveSessionId: zeroTabLiveSession.sessionId,
+    handshakeOnlySessionId: handshakeOnlySession.sessionId,
     endedSessionId: endedSession.sessionId,
     screenshotIds: [1, 2],
     async stop() {
