@@ -7,33 +7,33 @@ servers:
   - url: http://127.0.0.1:9200
 paths:
   /system/health:
-    $ref: ./paths/system-health.yaml
+    $ref: ./paths/system.yaml#/health
   /system/shutdown:
-    $ref: ./paths/system-shutdown.yaml
+    $ref: ./paths/system.yaml#/shutdown
   /api/v1/system:
-    $ref: ./paths/system-info.yaml
+    $ref: ./paths/system.yaml#/info
   /api/v1/settings/telemetry:
-    $ref: ./paths/telemetry.yaml
+    $ref: ./paths/settings.yaml#/telemetry
   /api/v1/sessions:
-    $ref: ./paths/sessions.yaml
+    $ref: ./paths/sessions.yaml#/collection
   /api/v1/sessions/{sessionId}:
-    $ref: ./paths/session.yaml
+    $ref: ./paths/sessions.yaml#/detail
   /api/v1/sessions/{sessionId}/cancel:
-    $ref: ./paths/session-cancel.yaml
+    $ref: ./paths/sessions.yaml#/cancel
   /api/v1/sessions/{sessionId}/recording:
-    $ref: ./paths/session-recording.yaml
+    $ref: ./paths/recordings.yaml#/metadata
   /api/v1/sessions/{sessionId}/recording/events:
-    $ref: ./paths/session-recording-events.yaml
+    $ref: ./paths/recordings.yaml#/events
   /api/v1/recordings/events:
-    $ref: ./paths/recording-events.yaml
+    $ref: ./paths/recordings.yaml#/ingest
   /api/v1/sessions/{sessionId}/browser-tabs/{browserTabId}/preview:
-    $ref: ./paths/session-browser-tab-preview.yaml
+    $ref: ./paths/sessions.yaml#/browserTabPreview
   /api/v1/dispatches/{dispatchId}/screenshot:
-    $ref: ./paths/dispatch-screenshot.yaml
+    $ref: ./paths/dispatches.yaml#/screenshot
   /api/v1/connections:
-    $ref: ./paths/connections.yaml
+    $ref: ./paths/connections.yaml#/collection
   /api/v1/connections/{harness}:
-    $ref: ./paths/connection.yaml
+    $ref: ./paths/connections.yaml#/harness
 components:
   parameters:
     SessionId:
@@ -67,7 +67,7 @@ components:
       $ref: ./responses.yaml#/InternalError
   schemas:
     ApiError:
-      $ref: ./schemas/system.yaml#/ApiError
+      $ref: ./schemas/common.yaml#/ApiError
     HealthResponse:
       $ref: ./schemas/system.yaml#/HealthResponse
     ShutdownResponse:
@@ -77,9 +77,9 @@ components:
     SystemCapabilities:
       $ref: ./schemas/system.yaml#/SystemCapabilities
     TelemetryState:
-      $ref: ./schemas/system.yaml#/TelemetryState
+      $ref: ./schemas/settings.yaml#/TelemetryState
     UpdateTelemetryRequest:
-      $ref: ./schemas/system.yaml#/UpdateTelemetryRequest
+      $ref: ./schemas/settings.yaml#/UpdateTelemetryRequest
     SessionStatus:
       $ref: ./schemas/sessions.yaml#/SessionStatus
     LiveSessionActivityState:
@@ -95,17 +95,17 @@ components:
     SessionDetail:
       $ref: ./schemas/sessions.yaml#/SessionDetail
     Dispatch:
-      $ref: ./schemas/sessions.yaml#/Dispatch
+      $ref: ./schemas/dispatches.yaml#/Dispatch
     CancelSessionResponse:
       $ref: ./schemas/sessions.yaml#/CancelSessionResponse
     RecordingMetadata:
-      $ref: ./schemas/sessions.yaml#/RecordingMetadata
+      $ref: ./schemas/recordings.yaml#/RecordingMetadata
     RecordingTabMetadata:
-      $ref: ./schemas/sessions.yaml#/RecordingTabMetadata
+      $ref: ./schemas/recordings.yaml#/RecordingTabMetadata
     RecordingSegmentMetadata:
-      $ref: ./schemas/sessions.yaml#/RecordingSegmentMetadata
+      $ref: ./schemas/recordings.yaml#/RecordingSegmentMetadata
     AppendRecordingEventsResponse:
-      $ref: ./schemas/sessions.yaml#/AppendRecordingEventsResponse
+      $ref: ./schemas/recordings.yaml#/AppendRecordingEventsResponse
     ToolEvent:
       $ref: ./schemas/sessions.yaml#/ToolEvent
     Harness:
