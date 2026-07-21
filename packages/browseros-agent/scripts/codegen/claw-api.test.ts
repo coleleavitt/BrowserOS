@@ -43,8 +43,9 @@ const expectedPaths = [
   '/api/v1/sessions/{sessionId}/cancel',
   '/api/v1/sessions/{sessionId}/recording',
   '/api/v1/sessions/{sessionId}/recording/events',
-  '/api/v1/sessions/{sessionId}/browser-tabs/{browserTabId}/preview',
-  '/api/v1/dispatches/{dispatchId}/screenshot',
+  '/api/v1/sessions/{sessionId}/preview',
+  '/api/v1/sessions/{sessionId}/screenshots',
+  '/api/v1/sessions/{sessionId}/screenshots/{screenshotId}',
   '/api/v1/connections',
   '/api/v1/connections/{harness}',
 ]
@@ -60,9 +61,9 @@ const expectedPathGroups: Record<string, string> = {
   '/api/v1/sessions/{sessionId}/cancel': 'sessions',
   '/api/v1/sessions/{sessionId}/recording': 'recordings',
   '/api/v1/sessions/{sessionId}/recording/events': 'recordings',
-  '/api/v1/sessions/{sessionId}/browser-tabs/{browserTabId}/preview':
-    'sessions',
-  '/api/v1/dispatches/{dispatchId}/screenshot': 'dispatches',
+  '/api/v1/sessions/{sessionId}/preview': 'sessions',
+  '/api/v1/sessions/{sessionId}/screenshots': 'sessions',
+  '/api/v1/sessions/{sessionId}/screenshots/{screenshotId}': 'sessions',
   '/api/v1/connections': 'connections',
   '/api/v1/connections/{harness}': 'connections',
 }
@@ -84,6 +85,8 @@ const expectedModelGroups = {
   SessionBrowserTab: 'sessions',
   SessionDetail: 'sessions',
   SessionList: 'sessions',
+  SessionScreenshot: 'sessions',
+  SessionScreenshotList: 'sessions',
   SessionStatus: 'sessions',
   SessionSummary: 'sessions',
   ShutdownResponse: 'system',
@@ -100,14 +103,15 @@ const expectedOperationGroups = {
   connectHarness: 'connections',
   disconnectHarness: 'connections',
   downloadRecordingEvents: 'recordings',
-  getDispatchScreenshot: 'dispatches',
   getHealth: 'system',
   getRecording: 'recordings',
   getSession: 'sessions',
-  getSessionBrowserTabPreview: 'sessions',
+  getSessionPreview: 'sessions',
+  getSessionScreenshot: 'sessions',
   getSystemInfo: 'system',
   getTelemetry: 'settings',
   listConnections: 'connections',
+  listSessionScreenshots: 'sessions',
   listSessions: 'sessions',
   shutdown: 'system',
   updateTelemetry: 'settings',
@@ -156,7 +160,6 @@ describe('BrowserClaw OpenAPI contract', () => {
       (await readdir(join(contractDirectory, 'paths'))).toSorted(),
     ).toEqual([
       'connections.yaml',
-      'dispatches.yaml',
       'recordings.yaml',
       'sessions.yaml',
       'settings.yaml',
@@ -245,6 +248,24 @@ describe('TypeScript Claw API package boundary', () => {
     expect(await readFile(join(packageDirectory, 'src/index.ts'), 'utf8')).toBe(
       "export * from './generated/index.js'\n",
     )
+  })
+})
+
+describe('TypeScript Claw API client generation boundary', () => {
+  test('exports type-only paths, operations, and components', async () => {
+    const generatedPath = resolve(
+      import.meta.dir,
+      '../../packages/claw-api-client/src/generated/openapi.ts',
+    )
+    const source = await readFile(generatedPath, 'utf8')
+
+    expect(source).toStartWith(
+      '// This file is generated from contracts/claw-api/openapi.yaml. Do not edit.\n',
+    )
+    expect(source).toMatch(/export interface paths \{/)
+    expect(source).toMatch(/export interface operations \{/)
+    expect(source).toMatch(/export interface components \{/)
+    expect(source).not.toMatch(/\b(?:DefaultApi|Configuration|runtime)\b/)
   })
 })
 

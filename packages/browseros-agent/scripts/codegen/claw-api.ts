@@ -2,8 +2,9 @@
  * Codegen for the canonical BrowserClaw API. Reads the OpenAPI spec at
  * `contracts/claw-api/openapi.yaml` and emits language-specific DTOs:
  * TypeScript models into `packages/claw-api/src/generated` and Rust
- * models into `crates/claw-api/src/generated`. Models are grouped by their
- * contract schema files and flat-re-exported for consumer compatibility.
+ * models into `crates/claw-api/src/generated`, plus type-only OpenAPI
+ * operations into `packages/claw-api-client/src/generated`. DTO models are
+ * grouped by their contract schema files and flat-re-exported for consumer compatibility.
  * Neither tree is ever hand-edited — change the spec, then regenerate with
  * `bun run codegen:claw-api`.
  *
@@ -18,6 +19,7 @@
 import { spawnSync } from 'node:child_process'
 import {
   cpSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -35,6 +37,7 @@ const check = process.argv.includes('--check')
 interface GeneratedTrees {
   typescript: string
   rust: string
+  client: string
 }
 
 interface OpenApiSchemasDocument {
@@ -412,6 +415,7 @@ function runGenerator(outputRoot: string): GeneratedTrees {
 
   const typescript = join(outputRoot, 'typescript')
   const rust = join(outputRoot, 'rust/src/models')
+  const client = join(outputRoot, 'client')
   rmSync(join(typescript, '.openapi-generator'), {
     recursive: true,
     force: true,
@@ -431,6 +435,17 @@ function runGenerator(outputRoot: string): GeneratedTrees {
     writeFileSync(path, normalized)
   }
   writeFileSync(join(typescript, 'index.ts'), emitTypeScriptModelIndex(groups))
+  mkdirSync(client, { recursive: true })
+  const clientOutput = join(client, 'openapi.ts')
+  runOpenApiTypescript(clientOutput)
+  writeFileSync(
+    clientOutput,
+    `// This file is generated from contracts/claw-api/openapi.yaml. Do not edit.\n${readFileSync(clientOutput, 'utf8')}`,
+  )
+  runFormatter(
+    clientOutput,
+    join(root, 'packages/claw-api-client/src/generated/openapi.ts'),
+  )
   for (const file of listFiles(rust).filter((path) => path.endsWith('.rs'))) {
     const result = spawnSync(
       'rustfmt',
@@ -448,7 +463,48 @@ function runGenerator(outputRoot: string): GeneratedTrees {
   return {
     typescript,
     rust,
+    client,
   }
+}
+
+function runOpenApiTypescript(output: string): void {
+  // openapi-typescript 7 uses the TypeScript 5 compiler API, while the
+  // workspace's TypeScript 7 package intentionally no longer exports it.
+  const result = spawnSync(
+    'bunx',
+    [
+      '--package',
+      'typescript@5.9.3',
+      '--package',
+      'openapi-typescript@7.13.0',
+      'openapi-typescript',
+      join(root, 'contracts/claw-api/openapi.yaml'),
+      '--output',
+      output,
+    ],
+    { stdio: 'inherit' },
+  )
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`openapi-typescript exited with status ${result.status}`)
+  }
+}
+
+function runFormatter(output: string, sourcePath: string): void {
+  const result = spawnSync(
+    'biome',
+    ['format', `--stdin-file-path=${sourcePath}`],
+    {
+      encoding: 'utf8',
+      input: readFileSync(output, 'utf8'),
+      stdio: ['pipe', 'pipe', 'inherit'],
+    },
+  )
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`Biome exited with status ${result.status}`)
+  }
+  writeFileSync(output, result.stdout)
 }
 
 function groupGeneratedModels(typescript: string, rust: string): string[] {
@@ -547,6 +603,7 @@ function runDocker(args: string[]): void {
 function installGenerated(trees: GeneratedTrees): void {
   const typescriptTarget = join(root, 'packages/claw-api/src/generated')
   const rustTarget = join(root, 'crates/claw-api/src/generated')
+  const clientTarget = join(root, 'packages/claw-api-client/src/generated')
 
   rmSync(typescriptTarget, { recursive: true, force: true })
   cpSync(trees.typescript, typescriptTarget, {
@@ -560,6 +617,9 @@ function installGenerated(trees: GeneratedTrees): void {
 
   rmSync(rustTarget, { recursive: true, force: true })
   cpSync(trees.rust, rustTarget, { recursive: true })
+
+  rmSync(clientTarget, { recursive: true, force: true })
+  cpSync(trees.client, clientTarget, { recursive: true })
 }
 
 function listFiles(directory: string): string[] {
@@ -611,10 +671,16 @@ if (import.meta.main) {
         join(root, 'packages/claw-api/src/generated'),
       )
       assertTreeMatches(trees.rust, join(root, 'crates/claw-api/src/generated'))
+      assertTreeMatches(
+        trees.client,
+        join(root, 'packages/claw-api-client/src/generated'),
+      )
       console.log('BrowserClaw API generated output is current.')
     } else {
       installGenerated(trees)
-      console.log('Generated BrowserClaw TypeScript and Rust DTOs.')
+      console.log(
+        'Generated BrowserClaw TypeScript and Rust DTOs plus client operation types.',
+      )
     }
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true })

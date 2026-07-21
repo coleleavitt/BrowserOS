@@ -88,8 +88,15 @@ function createFakeClock() {
   }
 }
 
-function requestHeader(init: RequestInit | undefined, name: string): string {
-  return new Headers(init?.headers).get(name) ?? ''
+function asRequest(
+  input: Parameters<typeof globalThis.fetch>[0],
+  init?: Parameters<typeof globalThis.fetch>[1],
+): Request {
+  return input instanceof Request ? input : new Request(input, init)
+}
+
+function requestHeader(request: Request, name: string): string {
+  return request.headers.get(name) ?? ''
 }
 
 function systemResponse(version: number | null = 2, maxBytes = 4_194_304) {
@@ -102,6 +109,77 @@ function systemResponse(version: number | null = 2, maxBytes = 4_194_304) {
 }
 
 describe('createRecordingsRelay', () => {
+  it('invokes fetch without a receiver so a queued batch reaches ingest', async () => {
+    const outbox = createMemoryOutbox()
+    const requests: Array<{
+      url: string
+      method: string
+      body: string
+      contentType: string
+      tabId: string
+      documentId: string
+      batchId: string
+      hasGap: string
+    }> = []
+    const receivers: unknown[] = []
+    const ndjson =
+      '{"timestamp":100,"type":2,"data":{"href":"https://example.com"}}'
+
+    async function receiverSensitiveFetch(
+      this: void,
+      input: Parameters<typeof globalThis.fetch>[0],
+      init?: Parameters<typeof globalThis.fetch>[1],
+    ): Promise<Response> {
+      receivers.push(this)
+      if (this !== undefined) {
+        throw new TypeError("Failed to execute 'fetch': Illegal invocation")
+      }
+
+      const request = asRequest(input, init)
+      const url = request.url
+      const headers = request.headers
+      requests.push({
+        url,
+        method: request.method,
+        body: await request.clone().text(),
+        contentType: headers.get('content-type') ?? '',
+        tabId: headers.get('x-recording-tab-id') ?? '',
+        documentId: headers.get('x-recording-document-id') ?? '',
+        batchId: headers.get('x-recording-batch-id') ?? '',
+        hasGap: headers.get('x-recording-has-gap') ?? '',
+      })
+      if (url.endsWith('/api/v1/system')) return systemResponse()
+      return Response.json({ accepted: 1 })
+    }
+
+    const relay = createRecordingsRelay({
+      resolveServerBaseUrl: async () => serverBaseUrl,
+      outbox,
+      fetch: receiverSensitiveFetch,
+      warn: () => {},
+    })
+
+    await relay.post(42, documentIds.retrying, ndjson, true)
+
+    expect(requests).toHaveLength(2)
+    expect(requests[0]).toMatchObject({
+      url: `${serverBaseUrl}/api/v1/system`,
+      method: 'GET',
+    })
+    expect(requests[1]).toMatchObject({
+      url: `${serverBaseUrl}/api/v1/recordings/events`,
+      method: 'POST',
+      body: ndjson,
+      contentType: 'application/x-ndjson',
+      tabId: '42',
+      documentId: documentIds.retrying,
+      hasGap: 'true',
+    })
+    expect(requests[1]?.batchId).toBeString()
+    expect(outbox.batches).toEqual([])
+    expect(receivers).toEqual([undefined, undefined])
+  })
+
   it('persists before delivery and retries stable document batches without tab discovery', async () => {
     const clock = createFakeClock()
     const outbox = createMemoryOutbox()
@@ -120,17 +198,18 @@ describe('createRecordingsRelay', () => {
       resolveServerBaseUrl: async () => serverBaseUrl,
       outbox,
       fetch: async (input, init) => {
-        const url = String(input)
+        const request = asRequest(input, init)
+        const url = request.url
         if (url.endsWith('/api/v1/system')) return systemResponse()
         attempts.push({
           url,
-          body: String(init?.body),
-          batchId: requestHeader(init, 'X-Recording-Batch-Id'),
-          tabId: requestHeader(init, 'X-Recording-Tab-Id'),
-          documentId: requestHeader(init, 'X-Recording-Document-Id'),
-          sessionId: requestHeader(init, 'X-Browser-Session-Id'),
-          pageId: requestHeader(init, 'X-Recording-Page-Id'),
-          targetId: requestHeader(init, 'X-Recording-Target-Id'),
+          body: await request.clone().text(),
+          batchId: requestHeader(request, 'X-Recording-Batch-Id'),
+          tabId: requestHeader(request, 'X-Recording-Tab-Id'),
+          documentId: requestHeader(request, 'X-Recording-Document-Id'),
+          sessionId: requestHeader(request, 'X-Browser-Session-Id'),
+          pageId: requestHeader(request, 'X-Recording-Page-Id'),
+          targetId: requestHeader(request, 'X-Recording-Target-Id'),
         })
         if (!serverUp) throw new TypeError('connection refused')
         return Response.json({ accepted: 1 })
@@ -177,8 +256,9 @@ describe('createRecordingsRelay', () => {
       resolveServerBaseUrl: async () => serverBaseUrl,
       outbox,
       fetch: async (input, init) => {
-        if (String(input).endsWith('/api/v1/system')) return systemResponse()
-        firstAttemptId = requestHeader(init, 'X-Recording-Batch-Id')
+        const request = asRequest(input, init)
+        if (request.url.endsWith('/api/v1/system')) return systemResponse()
+        firstAttemptId = requestHeader(request, 'X-Recording-Batch-Id')
         throw new TypeError('worker stopped')
       },
       setTimeout: () =>
@@ -192,8 +272,9 @@ describe('createRecordingsRelay', () => {
       resolveServerBaseUrl: async () => serverBaseUrl,
       outbox,
       fetch: async (input, init) => {
-        if (String(input).endsWith('/api/v1/system')) return systemResponse()
-        resumedId = requestHeader(init, 'X-Recording-Batch-Id')
+        const request = asRequest(input, init)
+        if (request.url.endsWith('/api/v1/system')) return systemResponse()
+        resumedId = requestHeader(request, 'X-Recording-Batch-Id')
         return Response.json({ accepted: 1 })
       },
       warn: () => {},
@@ -213,10 +294,11 @@ describe('createRecordingsRelay', () => {
       resolveServerBaseUrl: async () => serverBaseUrl,
       outbox,
       fetch: async (input, init) => {
-        if (String(input).endsWith('/api/v1/system')) {
+        const request = asRequest(input, init)
+        if (request.url.endsWith('/api/v1/system')) {
           return systemResponse(version)
         }
-        postedBodies.push(String(init?.body))
+        postedBodies.push(await request.clone().text())
         return Response.json({ accepted: 1 })
       },
       now: clock.now,
@@ -244,8 +326,9 @@ describe('createRecordingsRelay', () => {
       resolveServerBaseUrl: async () => serverBaseUrl,
       outbox,
       fetch: async (input, init) => {
-        if (String(input).endsWith('/api/v1/system')) return systemResponse()
-        gapHeader = requestHeader(init, 'X-Recording-Has-Gap')
+        const request = asRequest(input, init)
+        if (request.url.endsWith('/api/v1/system')) return systemResponse()
+        gapHeader = requestHeader(request, 'X-Recording-Has-Gap')
         return Response.json({ accepted: 1 })
       },
       warn: () => {},
@@ -264,8 +347,8 @@ describe('createRecordingsRelay', () => {
     const relay = createRecordingsRelay({
       resolveServerBaseUrl: async () => serverBaseUrl,
       outbox,
-      fetch: async (input) => {
-        if (String(input).endsWith('/api/v1/system')) {
+      fetch: async (input, init) => {
+        if (asRequest(input, init).url.endsWith('/api/v1/system')) {
           return systemResponse(null)
         }
         return Response.json({ accepted: 1 })
@@ -295,9 +378,10 @@ describe('createRecordingsRelay', () => {
       resolveServerBaseUrl: async () => serverBaseUrl,
       outbox,
       fetch: async (input, init) => {
-        if (String(input).endsWith('/api/v1/system'))
+        const request = asRequest(input, init)
+        if (request.url.endsWith('/api/v1/system'))
           return systemResponse(2, 100)
-        gapHeaders.push(requestHeader(init, 'X-Recording-Has-Gap'))
+        gapHeaders.push(requestHeader(request, 'X-Recording-Has-Gap'))
         return Response.json({ accepted: 1 })
       },
       warn: () => {},
