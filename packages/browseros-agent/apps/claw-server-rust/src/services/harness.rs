@@ -123,6 +123,12 @@ pub struct IntegrityScanOutcome {
     pub failed: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UrlMigrationOutcome {
+    pub migrated: usize,
+    pub failed: usize,
+}
+
 #[derive(Clone)]
 pub struct HarnessService {
     manager: Manager,
@@ -317,6 +323,27 @@ impl HarnessService {
         tokio::task::spawn_blocking(move || run_integrity_scan(&manager, &workspace_dir))
             .await?
             .map_err(manager_app_error)
+    }
+
+    /// Re-links every connected harness to `target_mcp_url`. Called on boot so a
+    /// proxy-port change (native re-resolves ports at app launch) re-points all
+    /// already-connected agents at the new URL. Harnesses already on the URL are
+    /// verified without rewriting their config (relink is write-on-change);
+    /// per-harness failures are isolated so one unwritable config never blocks
+    /// the rest.
+    pub async fn migrate_connected_urls(
+        &self,
+        target_mcp_url: &str,
+    ) -> AppResult<UrlMigrationOutcome> {
+        let _guard = self.mutex.lock().await;
+        let manager = self.manager.clone();
+        let workspace_dir = self.workspace_dir.clone();
+        let target = target_mcp_url.to_string();
+        tokio::task::spawn_blocking(move || {
+            migrate_connected_urls(&manager, &workspace_dir, &target)
+        })
+        .await?
+        .map_err(manager_app_error)
     }
 
     fn failure(
@@ -624,6 +651,53 @@ fn tildify_home_path(path: Option<&Path>, home_dir: &Path) -> Option<String> {
         Ok(relative) => Some(format!("~/{}", relative.display())),
         Err(_) => Some(path.display().to_string()),
     }
+}
+
+fn migrate_connected_urls(
+    manager: &Manager,
+    workspace_dir: &Path,
+    target_mcp_url: &str,
+) -> Result<UrlMigrationOutcome, ManagerError> {
+    // Always re-link every connected agent rather than short-circuiting on the
+    // manifest URL. A partial migration (crash after some agents relinked but
+    // before the rest) leaves the manifest already pointing at the target while
+    // stale agents keep the old port; a manifest-level skip would strand them,
+    // and the integrity scan only checks server-name presence, not the URL.
+    // relink is write-on-change, so agents already on the target aren't rewritten.
+    let links = with_legacy_manifest_migration(workspace_dir, || {
+        manager.list_links(ListLinksFilter {
+            server_names: Some(vec![BROWSEROS_MCP_SERVER_NAME.to_string()]),
+            agents: None,
+        })
+    })?;
+
+    let mut outcome = UrlMigrationOutcome::default();
+    for link in links {
+        let agent = link.agent;
+        let spec = match spec_for(agent, target_mcp_url) {
+            Ok(spec) => spec,
+            Err(error) => {
+                outcome.failed += 1;
+                tracing::warn!(agent = %agent, error = %error, "URL migration: spec build failed");
+                continue;
+            }
+        };
+        match relink_managed_server(
+            manager,
+            workspace_dir,
+            BROWSEROS_MCP_SERVER_NAME,
+            agent,
+            spec,
+            true,
+        ) {
+            Ok(_) => outcome.migrated += 1,
+            Err(error) => {
+                outcome.failed += 1;
+                tracing::warn!(agent = %agent, error = %error, "URL migration: relink failed");
+            }
+        }
+    }
+    Ok(outcome)
 }
 
 fn manager_app_error(error: ManagerError) -> AppError {
