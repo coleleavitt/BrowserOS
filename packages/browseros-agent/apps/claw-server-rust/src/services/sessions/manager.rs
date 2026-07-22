@@ -97,6 +97,8 @@ pub struct Sessions {
     retained: RwLock<HashMap<ConvoId, RetainedSession>>,
     // One retained-group close per key may be in flight; failed attempts remain retryable.
     reaping_keys: Mutex<HashSet<ConvoId>>,
+    /// Serializes retries per session through terminal persistence without coupling unrelated Stops.
+    cancellation_transitions: Mutex<HashMap<SessionId, Arc<Mutex<()>>>>,
     retained_group_hook: OnceLock<RetainedGroupHook>,
     idle_after: Duration,
     retention: Duration,
@@ -141,6 +143,7 @@ impl Sessions {
             reserved_keys: Mutex::new(HashSet::new()),
             retained: RwLock::new(HashMap::new()),
             reaping_keys: Mutex::new(HashSet::new()),
+            cancellation_transitions: Mutex::new(HashMap::new()),
             retained_group_hook: OnceLock::new(),
             idle_after,
             retention,
@@ -269,22 +272,71 @@ impl Sessions {
             .count()
     }
 
-    pub async fn cancel_by_convo(&self, convo_id: &ConvoId) -> usize {
-        let sessions: Vec<Arc<Session>> = self.sessions.read().await.values().cloned().collect();
-        let mut cancelled = 0;
-        for session in sessions {
-            if session.convo_id() == convo_id {
-                cancelled += session.cancel_active_dispatches().await;
-            }
-        }
-        cancelled
+    /// Removes the live entry before teardown so transport requests cannot resolve it again.
+    pub async fn cancel_by_session(&self, session_id: &SessionId) -> AppResult<Option<usize>> {
+        let transition = self.cancellation_transition(session_id).await;
+        let result = {
+            let _transition = transition.lock().await;
+            self.cancel_by_session_serialized(session_id).await
+        };
+        self.release_cancellation_transition(session_id, &transition)
+            .await;
+        result
     }
 
-    /// `None` when the session is not live; `Some(n)` aborts its active
-    /// dispatches and reports how many there were.
-    pub async fn cancel_by_session(&self, session_id: &SessionId) -> Option<usize> {
-        let session = self.lookup(session_id).await?;
-        Some(session.cancel_active_dispatches().await)
+    async fn cancel_by_session_serialized(
+        &self,
+        session_id: &SessionId,
+    ) -> AppResult<Option<usize>> {
+        let session = {
+            let mut sessions = self.sessions.write().await;
+            sessions
+                .remove(session_id)
+                .map(|session| (session, self.teardowns.begin()))
+        };
+        let Some((session, _teardown)) = session else {
+            return Ok(None);
+        };
+        session.request_operator_stop();
+        match self
+            .teardown(
+                session.clone(),
+                "cancelled",
+                Some("operator requested stop"),
+            )
+            .await
+        {
+            Ok(cancelled_dispatches) => Ok(Some(cancelled_dispatches)),
+            Err(error) => {
+                self.restore_pending_operator_stop(session_id, session)
+                    .await;
+                Err(error)
+            }
+        }
+    }
+
+    async fn cancellation_transition(&self, session_id: &SessionId) -> Arc<Mutex<()>> {
+        self.cancellation_transitions
+            .lock()
+            .await
+            .entry(session_id.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+
+    async fn release_cancellation_transition(
+        &self,
+        session_id: &SessionId,
+        transition: &Arc<Mutex<()>>,
+    ) {
+        let mut transitions = self.cancellation_transitions.lock().await;
+        if Arc::strong_count(transition) == 2
+            && transitions
+                .get(session_id)
+                .is_some_and(|current| Arc::ptr_eq(current, transition))
+        {
+            transitions.remove(session_id);
+        }
     }
 
     pub async fn owner_of_page(&self, page_id: &browseros_core::PageId) -> Option<ConvoId> {
@@ -304,10 +356,25 @@ impl Sessions {
                 .map(|session| (session, self.teardowns.begin()))
         };
         if let Some((session, _teardown)) = session {
-            self.teardown(session, kind, reason).await?;
-            return Ok(true);
+            return match self.teardown(session.clone(), kind, reason).await {
+                Ok(_) => Ok(true),
+                Err(error) => {
+                    self.restore_pending_operator_stop(id, session).await;
+                    Err(error)
+                }
+            };
         }
         Ok(false)
+    }
+
+    async fn restore_pending_operator_stop(&self, id: &SessionId, session: Arc<Session>) {
+        if session.operator_stop_requested() {
+            self.sessions
+                .write()
+                .await
+                .entry(id.clone())
+                .or_insert(session);
+        }
     }
 
     pub async fn sweep_idle(&self) -> AppResult<usize> {
@@ -372,16 +439,33 @@ impl Sessions {
         session: Arc<Session>,
         kind: &str,
         reason: Option<&str>,
-    ) -> AppResult<()> {
-        session.cancel_active_dispatches().await;
-        session.cancel();
+    ) -> AppResult<usize> {
+        let operator_stop_requested = session.operator_stop_requested();
+        let (kind, reason) = if operator_stop_requested {
+            ("cancelled", Some("operator requested stop"))
+        } else {
+            (kind, reason)
+        };
+        let cancelled_dispatches = session.stop_dispatches().await;
+        session.wait_for_dispatches().await;
+        if operator_stop_requested {
+            for dispatch_id in session.pending_operator_cancellation_audits().await {
+                self.audit_log
+                    .mark_dispatch_operator_cancelled(&dispatch_id)
+                    .await?;
+                session
+                    .mark_operator_cancellation_audit_reconciled(&dispatch_id)
+                    .await;
+            }
+        }
         self.session_tabs
             .enqueue_release_claims_for_session(session.id().as_str().to_string());
         let audit_result = self
             .audit_log
             .record_session_end(session.id().as_str(), kind, reason)
             .await;
-        self.finish_teardown(session, kind, audit_result).await
+        self.finish_teardown(session, kind, audit_result).await?;
+        Ok(cancelled_dispatches)
     }
 
     async fn finish_teardown(
@@ -479,11 +563,11 @@ impl Sessions {
     }
 }
 
-async fn teardown_all<T, I, F, Fut>(items: I, mut teardown: F) -> AppResult<usize>
+async fn teardown_all<T, I, F, Fut, R>(items: I, mut teardown: F) -> AppResult<usize>
 where
     I: IntoIterator<Item = T>,
     F: FnMut(T) -> Fut,
-    Fut: Future<Output = AppResult<()>>,
+    Fut: Future<Output = AppResult<R>>,
 {
     let mut count = 0;
     let mut first_error = None;
@@ -506,9 +590,9 @@ mod tests {
     use super::{RetainedGroupAction, Session, Sessions, teardown_all};
     use crate::{
         analytics::{AnalyticsSink, events},
-        db::{AuditLog, DATABASE_FILENAME, Database, SessionTabLedger},
+        db::{AuditLog, DATABASE_FILENAME, Database, SessionTabLedger, audit_log::TaskStatus},
         identity::{ClientIdentity, ClientInfo, ConversationIdentity, generate_fun_name},
-        ids::{ConvoId, SessionId},
+        ids::{ConvoId, DispatchId, SessionId},
     };
     use serde_json::{Value, json};
     use std::{
@@ -520,6 +604,7 @@ mod tests {
     };
     use tempfile::tempdir;
     use tokio::time::Instant;
+    use tokio_util::sync::CancellationToken;
 
     #[derive(Default)]
     struct RecordingAnalytics {
@@ -655,6 +740,205 @@ mod tests {
             )
             .await?;
         assert!(registry.lookup(session.id()).await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn terminal_cancellation_removes_session_and_records_end() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let (audit_log, session_tabs) = repositories(&dir).await?;
+        let registry = Sessions::new(
+            audit_log.clone(),
+            session_tabs,
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+            Duration::from_secs(1),
+        );
+        let session = registry
+            .mint(
+                ClientIdentity::Ephemeral {
+                    slug: "agent".to_string(),
+                    label: "Agent".to_string(),
+                },
+                ClientInfo {
+                    name: "Agent".to_string(),
+                    version: "1".to_string(),
+                    title: None,
+                },
+            )
+            .await?;
+        let token = CancellationToken::new();
+        let dispatch_id = DispatchId::new();
+        assert!(
+            session
+                .try_register_dispatch(dispatch_id.clone(), token.clone())
+                .await
+        );
+
+        let first_registry = registry.clone();
+        let first_session_id = session.id().clone();
+        let first =
+            tokio::spawn(async move { first_registry.cancel_by_session(&first_session_id).await });
+        token.cancelled().await;
+
+        let retry_registry = registry.clone();
+        let retry_session_id = session.id().clone();
+        let retry =
+            tokio::spawn(async move { retry_registry.cancel_by_session(&retry_session_id).await });
+        tokio::task::yield_now().await;
+        assert!(!retry.is_finished());
+        assert!(!session.finish_dispatch(&dispatch_id).await);
+
+        assert_eq!(first.await??, Some(1));
+        assert_eq!(retry.await??, None);
+        assert!(registry.lookup(session.id()).await.is_none());
+        let summary = audit_log
+            .get_task_summary(session.id().as_str())
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("cancelled summary missing"))?;
+        assert_eq!(summary.status, TaskStatus::Cancelled);
+        assert!(
+            !registry
+                .remove(session.id(), "closed", Some("transport closed"))
+                .await?
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stopping_one_session_does_not_block_another_session() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let (audit_log, session_tabs) = repositories(&dir).await?;
+        let registry = Sessions::new(
+            audit_log,
+            session_tabs,
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+            Duration::from_secs(1),
+        );
+        let first = registry
+            .mint(
+                ClientIdentity::Ephemeral {
+                    slug: "agent".to_string(),
+                    label: "Agent".to_string(),
+                },
+                ClientInfo {
+                    name: "Agent".to_string(),
+                    version: "1".to_string(),
+                    title: None,
+                },
+            )
+            .await?;
+        let second = registry
+            .mint(
+                ClientIdentity::Ephemeral {
+                    slug: "agent".to_string(),
+                    label: "Agent".to_string(),
+                },
+                ClientInfo {
+                    name: "Agent".to_string(),
+                    version: "1".to_string(),
+                    title: None,
+                },
+            )
+            .await?;
+        let dispatch_id = DispatchId::new();
+        let token = CancellationToken::new();
+        assert!(
+            first
+                .try_register_dispatch(dispatch_id.clone(), token.clone())
+                .await
+        );
+
+        let first_registry = registry.clone();
+        let first_session_id = first.id().clone();
+        let first_stop =
+            tokio::spawn(async move { first_registry.cancel_by_session(&first_session_id).await });
+        token.cancelled().await;
+
+        let second_stop = tokio::time::timeout(
+            Duration::from_secs(1),
+            registry.cancel_by_session(second.id()),
+        )
+        .await;
+        assert_eq!(second_stop??, Some(0));
+
+        assert!(!first.finish_dispatch(&dispatch_id).await);
+        assert_eq!(first_stop.await??, Some(1));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pending_operator_stop_survives_later_transport_close() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let (audit_log, session_tabs) = repositories(&dir).await?;
+        let registry = Sessions::new(
+            audit_log.clone(),
+            session_tabs,
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+            Duration::from_secs(1),
+        );
+        let session = registry
+            .mint(
+                ClientIdentity::Ephemeral {
+                    slug: "agent".to_string(),
+                    label: "Agent".to_string(),
+                },
+                ClientInfo {
+                    name: "Agent".to_string(),
+                    version: "1".to_string(),
+                    title: None,
+                },
+            )
+            .await?;
+        session.request_operator_stop();
+
+        assert!(
+            registry
+                .remove(session.id(), "closed", Some("transport closed"))
+                .await?
+        );
+        let summary = audit_log
+            .get_task_summary(session.id().as_str())
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("cancelled summary missing"))?;
+        assert_eq!(summary.status, TaskStatus::Cancelled);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn restores_pending_operator_stop_for_teardown_retry() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let (audit_log, session_tabs) = repositories(&dir).await?;
+        let registry = Sessions::new(
+            audit_log,
+            session_tabs,
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+            Duration::from_secs(1),
+        );
+        let session = Session::new(
+            SessionId::new("pending-stop"),
+            ClientIdentity::Ephemeral {
+                slug: "agent".to_string(),
+                label: "Agent".to_string(),
+            },
+            ConversationIdentity::new("agent", "agile-alpaca".to_string()),
+            "Codex".to_string(),
+            Instant::now(),
+        );
+        session.request_operator_stop();
+
+        registry
+            .restore_pending_operator_stop(session.id(), session.clone())
+            .await;
+
+        let restored = registry
+            .lookup(session.id())
+            .await
+            .ok_or_else(|| anyhow::anyhow!("pending operator stop was not restored"))?;
+        assert!(Arc::ptr_eq(&restored, &session));
         Ok(())
     }
 

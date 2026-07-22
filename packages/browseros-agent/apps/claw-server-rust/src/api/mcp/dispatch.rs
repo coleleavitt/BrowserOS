@@ -212,14 +212,21 @@ async fn dispatch_tool_call_with(
     guards: &[ToolGuard],
     effects: &[NamedToolEffect],
 ) -> Result<CallToolResult, McpError> {
+    if let Some(identity) = &call.identity
+        && !identity
+            .session
+            .try_register_dispatch(call.dispatch_id.clone(), call.dispatch_cancel.clone())
+            .await
+    {
+        call.dispatch_cancel.cancel();
+        call.cancel.cancel();
+        return Err(McpError::invalid_request(
+            "BrowserClaw session is no longer live",
+            None,
+        ));
+    }
     if let (Some(browser), Some(page_id)) = (&call.browser_session, extract_page_id(&call)) {
         call.page_snapshot = browser.pages.get_info(PageId(page_id)).await;
-    }
-    if let Some(identity) = &call.identity {
-        identity
-            .session
-            .register_dispatch(call.dispatch_id.clone(), call.dispatch_cancel.clone())
-            .await;
     }
 
     let result = if let Some(rejection) = run_guards(&call, guards).await {
@@ -266,11 +273,19 @@ async fn dispatch_tool_call_with(
         }
     };
 
-    if let Some(identity) = &call.identity {
-        identity
-            .session
-            .unregister_dispatch(&call.dispatch_id)
-            .await;
+    let (teardown_before_finish, operator_stop_requested) = if let Some(identity) = &call.identity {
+        (
+            !identity.session.finish_dispatch(&call.dispatch_id).await,
+            identity.session.operator_stop_requested(),
+        )
+    } else {
+        (false, false)
+    };
+    if teardown_before_finish && operator_stop_requested {
+        let cancellation = operator_cancellation_result();
+        call.dispatch_cancel.cancel();
+        call.cancel.cancel();
+        return Ok(wire_result(cancellation));
     }
     call.dispatch_cancel.cancel();
     call.cancel.cancel();
@@ -447,12 +462,15 @@ mod tests {
     use super::*;
     use crate::db::audit_log::ListDispatchesQuery;
     use std::sync::{
-        Mutex,
+        LazyLock, Mutex,
         atomic::{AtomicUsize, Ordering},
     };
+    use tokio::sync::Notify;
 
     static EFFECT_CALLS: AtomicUsize = AtomicUsize::new(0);
     static EFFECT_ORDER: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    static LATE_EFFECT_ENTERED: LazyLock<Notify> = LazyLock::new(Notify::new);
+    static LATE_EFFECT_RELEASE: LazyLock<Notify> = LazyLock::new(Notify::new);
 
     fn record_effect(name: &'static str) {
         EFFECT_ORDER
@@ -499,6 +517,17 @@ mod tests {
         Box::pin(async move {
             let _ = context;
             EFFECT_CALLS.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        })
+    }
+
+    fn wait_after_audit_effect(
+        context: ToolEffectContext<'_>,
+    ) -> BoxFuture<'_, anyhow::Result<Option<ToolResult>>> {
+        Box::pin(async move {
+            let _ = context;
+            LATE_EFFECT_ENTERED.notify_one();
+            LATE_EFFECT_RELEASE.notified().await;
             Ok(None)
         })
     }
@@ -642,6 +671,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stopped_session_rejects_browser_dispatch_before_effects() -> anyhow::Result<()> {
+        let call =
+            crate::api::mcp::test_support::tool_call("tabs", json!({ "action": "list" })).await?;
+        let session = call
+            .identity
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("tool call identity missing"))?
+            .session
+            .clone();
+        session.stop_dispatches().await;
+
+        let result = dispatch_tool_call_with(
+            call.clone(),
+            &[],
+            &[NamedToolEffect {
+                name: "audit",
+                run: effects::audit::apply,
+            }],
+        )
+        .await;
+
+        let Err(error) = result else {
+            panic!("stopped session must reject dispatch");
+        };
+        assert_eq!(
+            error.message.as_ref(),
+            "BrowserClaw session is no longer live"
+        );
+        assert!(
+            call.state
+                .audit_log
+                .list_dispatches(ListDispatchesQuery::default())
+                .await?
+                .rows
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stop_winning_after_audit_rewrites_the_dispatch_as_cancelled() -> anyhow::Result<()> {
+        let call =
+            crate::api::mcp::test_support::tool_call("tabs", json!({ "action": "list" })).await?;
+        let session = call
+            .identity
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("tool call identity missing"))?
+            .session
+            .clone();
+        let dispatched_call = call.clone();
+        let dispatch = tokio::spawn(async move {
+            dispatch_tool_call_with(
+                dispatched_call,
+                &[],
+                &[
+                    NamedToolEffect {
+                        name: "audit",
+                        run: effects::audit::apply,
+                    },
+                    NamedToolEffect {
+                        name: "wait-after-audit",
+                        run: wait_after_audit_effect,
+                    },
+                ],
+            )
+            .await
+        });
+
+        LATE_EFFECT_ENTERED.notified().await;
+        let sessions = call.state.sessions.clone();
+        let session_id = session.id().clone();
+        let cancel = tokio::spawn(async move { sessions.cancel_by_session(&session_id).await });
+        call.dispatch_cancel.cancelled().await;
+        LATE_EFFECT_RELEASE.notify_one();
+        let result = dispatch.await??;
+        assert_eq!(cancel.await??, Some(1));
+
+        assert_eq!(
+            result
+                .content
+                .first()
+                .and_then(|block| block.as_text())
+                .map(|text| text.text.as_str()),
+            Some(CANCELLATION_REASON)
+        );
+        let rows = call
+            .state
+            .audit_log
+            .list_dispatches(ListDispatchesQuery::default())
+            .await?
+            .rows;
+        assert_eq!(rows.len(), 1);
+        let meta: Value = serde_json::from_str(
+            rows[0]
+                .result_meta
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("result metadata missing"))?,
+        )?;
+        assert_eq!(meta["cancelled"], true);
+        assert_eq!(meta["cancellationKind"], "cockpit.operator-cancelled");
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn passthrough_guard_returns_no_rejection() -> anyhow::Result<()> {
         let call =
             crate::api::mcp::test_support::tool_call("tabs", json!({ "action": "list" })).await?;
@@ -713,13 +846,23 @@ mod tests {
             .await?
             .rows;
         assert_eq!(rows.len(), 1);
-        assert!(
+        let meta: Value = serde_json::from_str(
             rows[0]
                 .result_meta
                 .as_deref()
-                .is_some_and(|meta| { meta.contains("cancellationKind") })
-        );
-        assert_eq!(session.cancel_active_dispatches().await, 0);
+                .ok_or_else(|| anyhow::anyhow!("result metadata missing"))?,
+        )?;
+        assert_eq!(meta["isError"], true);
+        assert_eq!(meta["cancelled"], true);
+        assert_eq!(meta["cancellationKind"], "cockpit.operator-cancelled");
+        let summary = call
+            .state
+            .audit_log
+            .get_task_summary(call.session_id.as_str())
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("task summary missing"))?;
+        assert_eq!(summary.error_count, 0);
+        assert_eq!(session.stop_dispatches().await, 0);
         Ok(())
     }
 
@@ -755,7 +898,7 @@ mod tests {
                 .rows
                 .is_empty()
         );
-        assert_eq!(session.cancel_active_dispatches().await, 0);
+        assert_eq!(session.stop_dispatches().await, 0);
         assert!(call.dispatch_cancel.is_cancelled());
         Ok(())
     }
