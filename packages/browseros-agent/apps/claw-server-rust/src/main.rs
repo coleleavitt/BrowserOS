@@ -146,8 +146,8 @@ async fn serve_with_boot_task(
         Some(proxy) => format!("http://127.0.0.1:{proxy}"),
         None => format!("http://{bound}"),
     };
-    tokio::spawn(async move {
-        claw_server_rust::runtime_file::write_runtime_file(&runtime_dir, &runtime_url).await;
+    runtime.spawn_task("runtime file publication", async move {
+        claw_server_rust::services::runtime_file::write(&runtime_dir, &runtime_url).await;
     });
     let shutdown = runtime.state().shutdown;
     runtime.spawn_task("MCP config integrity scan", boot_task);
