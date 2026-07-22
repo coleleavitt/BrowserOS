@@ -1,3 +1,6 @@
+//! Durable recording index. Each non-empty accepted document batch atomically commits stream
+//! metadata, NDJSON payload, and its durable dedupe identity.
+
 use crate::{
     clock::now_epoch_ms,
     db::{
@@ -25,7 +28,10 @@ pub struct RecordingIndex {
 
 pub struct AppendDocumentBatch<'a> {
     pub document_id: &'a str,
+    /// Chrome tab id permanently bound to the document by its first persisted batch.
     pub tab_id: i64,
+    /// Best-effort target attribution: a later persisted batch may fill an initial absence but
+    /// never replace a stored target id.
     pub target_id: Option<&'a str>,
     pub payload: String,
     pub first_event_at: i64,
@@ -33,6 +39,9 @@ pub struct AppendDocumentBatch<'a> {
     pub size_bytes: i64,
     pub event_count: i64,
     pub batch_id: &'a str,
+    /// Gap evidence from the recorder or server-dropped malformed lines. When the batch is
+    /// persisted, the gap is sticky for the document stream and makes any replay selecting it
+    /// incomplete.
     pub has_gap: bool,
 }
 

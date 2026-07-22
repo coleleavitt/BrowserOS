@@ -92,8 +92,10 @@ pub struct Sessions {
     session_tabs: Arc<SessionTabLedger>,
     analytics: Arc<dyn AnalyticsSink>,
     teardowns: TeardownTracker,
+    // Conversation keys remain reserved through live use and retained browser-group cleanup.
     reserved_keys: Mutex<HashSet<ConvoId>>,
     retained: RwLock<HashMap<ConvoId, RetainedSession>>,
+    // One retained-group close per key may be in flight; failed attempts remain retryable.
     reaping_keys: Mutex<HashSet<ConvoId>>,
     retained_group_hook: OnceLock<RetainedGroupHook>,
     idle_after: Duration,

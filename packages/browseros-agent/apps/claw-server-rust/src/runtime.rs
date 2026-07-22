@@ -108,6 +108,8 @@ impl AppRuntime {
                 )))
             }
         };
+        // Session teardown enqueues final ownership-release attempts, which are drained before
+        // shutdown returns.
         self.state.session_tabs.drain_writes().await;
         self.state.recordings.close().await;
         self.state.browser.stop();
