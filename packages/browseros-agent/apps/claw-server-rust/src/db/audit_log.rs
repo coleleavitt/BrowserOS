@@ -15,8 +15,8 @@ use browseros_mcp::token_estimate::estimate_tool_output_tokens;
 use rmcp::model::ContentBlock;
 use sea_orm::{
     ActiveValue::{NotSet, Set},
-    ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-    TransactionTrait,
+    ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect, Statement, TransactionTrait,
     sea_query::{Condition, Expr, ExprTrait, Func, OnConflict},
 };
 use serde::{Deserialize, Serialize};
@@ -1146,6 +1146,213 @@ mod tests {
                 .is_some_and(|task| task.dispatch_count == 0)
         );
         assert!(audit.get_task("handshake-1").await?.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn retention_queries_select_and_delete_sessions() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let audit = AuditLog::new(Database::open(dir.path().join(DATABASE_FILENAME)).await?);
+        let first = audit
+            .record_tool_dispatch(dispatch("a1", "https://one.example.com", false))
+            .await?;
+        audit
+            .record_tool_dispatch(dispatch("a1", "https://two.example.com", false))
+            .await?;
+        audit
+            .record_tool_dispatch(dispatch("b2", "https://three.example.com", false))
+            .await?;
+        audit.mark_screenshot(first).await?;
+
+        // A cutoff in the future makes every session "older than" it.
+        let future = crate::clock::now_epoch_ms() + 1_000_000;
+        let mut older = audit.sessions_older_than(future).await?;
+        older.sort();
+        assert_eq!(older, vec!["a1".to_string(), "b2".to_string()]);
+        assert!(audit.sessions_older_than(0).await?.is_empty());
+
+        let shots = audit
+            .screenshot_dispatches_for_sessions(&["a1".to_string()])
+            .await?;
+        assert_eq!(shots, vec![("a1".to_string(), first)]);
+        assert!(
+            audit
+                .screenshot_dispatches_for_sessions(&[])
+                .await?
+                .is_empty()
+        );
+
+        let counts = audit.delete_sessions(&["a1".to_string()]).await?;
+        assert_eq!(counts.dispatches, 2);
+        assert_eq!(counts.tasks, 1);
+        assert!(audit.get_task_summary("a1").await?.is_none());
+        assert_eq!(
+            audit.sessions_older_than(future).await?,
+            vec!["b2".to_string()]
+        );
+
+        audit.reclaim_disk().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn retention_includes_sessions_without_dispatches() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let audit = AuditLog::new(Database::open(dir.path().join(DATABASE_FILENAME)).await?);
+        audit
+            .record_session_start("c3", "agent-c", "agent", "Agent", "cli", "1.0")
+            .await?;
+
+        let future = crate::clock::now_epoch_ms() + 1_000_000;
+        assert_eq!(
+            audit.sessions_older_than(future).await?,
+            vec!["c3".to_string()]
+        );
+
+        let counts = audit.delete_sessions(&["c3".to_string()]).await?;
+        assert_eq!(counts.session_starts, 1);
+        assert!(audit.get_task_summary("c3").await?.is_none());
+        assert!(audit.sessions_older_than(future).await?.is_empty());
+        Ok(())
+    }
+}
+
+/// Row counts removed by an audit-retention delete.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AuditDeleteCounts {
+    pub dispatches: u64,
+    pub session_starts: u64,
+    pub session_ends: u64,
+    pub tasks: u64,
+}
+
+#[derive(FromQueryResult)]
+struct SessionIdRow {
+    session_id: String,
+}
+
+impl AuditLog {
+    /// Session ids whose most recent activity is older than `cutoff` (unix
+    /// millis). "Activity" spans dispatches AND lifecycle events, so a session
+    /// that only started/ended without any tool dispatch is still swept once it
+    /// ages out. The UNION-then-GROUP BY has no query-builder form, so it uses a
+    /// bound raw statement (as the recording-stream join does).
+    pub async fn sessions_older_than(&self, cutoff: i64) -> AppResult<Vec<String>> {
+        let statement = Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT session_id FROM (\
+               SELECT session_id, created_at FROM tool_dispatches \
+               UNION ALL SELECT session_id, created_at FROM agent_session_starts \
+               UNION ALL SELECT session_id, created_at FROM agent_session_ends\
+             ) GROUP BY session_id HAVING max(created_at) < ?",
+            [cutoff.into()],
+        );
+        Ok(SessionIdRow::find_by_statement(statement)
+            .all(self.db.connection())
+            .await?
+            .into_iter()
+            .map(|row| row.session_id)
+            .collect())
+    }
+
+    /// `(session_id, dispatch_id)` for every dispatch in `session_ids` carrying
+    /// a screenshot. The dispatch id is the screenshot id on disk.
+    pub async fn screenshot_dispatches_for_sessions(
+        &self,
+        session_ids: &[String],
+    ) -> AppResult<Vec<(String, i64)>> {
+        if session_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(ToolDispatches::find()
+            .filter(tool_dispatches::Column::SessionId.is_in(session_ids.iter().cloned()))
+            .filter(tool_dispatches::Column::HasScreenshot.eq(true))
+            .all(self.db.connection())
+            .await?
+            .into_iter()
+            .map(|row| (row.session_id, row.id))
+            .collect())
+    }
+
+    /// Deletes every audit row for `session_ids` across the four audit tables in
+    /// one transaction. `tasks` is included so the derived summary never shows a
+    /// phantom session.
+    pub async fn delete_sessions(&self, session_ids: &[String]) -> AppResult<AuditDeleteCounts> {
+        if session_ids.is_empty() {
+            return Ok(AuditDeleteCounts::default());
+        }
+        let txn = self.db.connection().begin().await?;
+        let dispatches = ToolDispatches::delete_many()
+            .filter(tool_dispatches::Column::SessionId.is_in(session_ids.iter().cloned()))
+            .exec(&txn)
+            .await?
+            .rows_affected;
+        let session_starts = AgentSessionStarts::delete_many()
+            .filter(agent_session_starts::Column::SessionId.is_in(session_ids.iter().cloned()))
+            .exec(&txn)
+            .await?
+            .rows_affected;
+        let session_ends = AgentSessionEnds::delete_many()
+            .filter(agent_session_ends::Column::SessionId.is_in(session_ids.iter().cloned()))
+            .exec(&txn)
+            .await?
+            .rows_affected;
+        let tasks = Tasks::delete_many()
+            .filter(tasks::Column::SessionId.is_in(session_ids.iter().cloned()))
+            .exec(&txn)
+            .await?
+            .rows_affected;
+        txn.commit().await?;
+        Ok(AuditDeleteCounts {
+            dispatches,
+            session_starts,
+            session_ends,
+            tasks,
+        })
+    }
+
+    /// Every dispatch id that currently owns a screenshot on disk. The orphan
+    /// sweep treats any screenshot file whose id is absent here as removable.
+    pub async fn screenshot_dispatch_ids(&self) -> AppResult<Vec<i64>> {
+        Ok(ToolDispatches::find()
+            .select_only()
+            .column(tool_dispatches::Column::Id)
+            .filter(tool_dispatches::Column::HasScreenshot.eq(true))
+            .into_tuple::<i64>()
+            .all(self.db.connection())
+            .await?)
+    }
+
+    /// Returns freed database pages to the OS. New databases open in incremental
+    /// auto-vacuum mode, where this is a cheap `incremental_vacuum`. Legacy
+    /// databases are converted once (set incremental + full `VACUUM`) so later
+    /// reclaims are cheap.
+    pub async fn reclaim_disk(&self) -> AppResult<()> {
+        let conn = self.db.connection();
+        let mode = conn
+            .query_one(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA auto_vacuum",
+            ))
+            .await?
+            .map(|row| row.try_get::<i64>("", "auto_vacuum"))
+            .transpose()?
+            .unwrap_or(0);
+        if mode == 2 {
+            conn.execute(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA incremental_vacuum",
+            ))
+            .await?;
+        } else {
+            conn.execute(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA auto_vacuum = INCREMENTAL",
+            ))
+            .await?;
+            conn.execute(Statement::from_string(DbBackend::Sqlite, "VACUUM"))
+                .await?;
+        }
         Ok(())
     }
 }
