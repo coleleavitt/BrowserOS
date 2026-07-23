@@ -16,6 +16,7 @@ impl MigratorTrait for Migrator {
             Box::new(m0007_add_session_efficiency_stats::Migration),
             Box::new(m0008_add_task_token_estimates::Migration),
             Box::new(m0009_rebase_screenshot_baseline::Migration),
+            Box::new(m0010_sum_session_efficiency_durations::Migration),
         ]
     }
 }
@@ -140,6 +141,140 @@ mod m0009_rebase_screenshot_baseline {
             assert_eq!(projection(&connection, "v1").await?, (6_000, 2));
             assert_eq!(projection(&connection, "v2").await?, (6_000, 2));
             assert_eq!(projection(&connection, "saturated").await?, (i64::MAX, 2));
+            Ok(())
+        }
+    }
+}
+
+mod m0010_sum_session_efficiency_durations {
+    use super::*;
+    use sea_orm_migration::sea_orm::{DbBackend, Statement};
+    use std::collections::BTreeMap;
+
+    const SOURCE_EFFICIENCY_ESTIMATOR_VERSION: i64 = 2;
+    const EFFICIENCY_ESTIMATOR_VERSION: i64 = 3;
+
+    pub struct Migration;
+
+    impl MigrationName for Migration {
+        fn name(&self) -> &str {
+            "m0010_sum_session_efficiency_durations"
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MigrationTrait for Migration {
+        async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+            let connection = manager.get_connection();
+            let source_rows = connection
+                .query_all(Statement::from_sql_and_values(
+                    DbBackend::Sqlite,
+                    r#"
+                    SELECT stats.session_id, dispatch.duration_ms
+                    FROM session_efficiency_stats AS stats
+                    JOIN tool_dispatches AS dispatch
+                        ON dispatch.session_id = stats.session_id
+                        AND dispatch.created_at <= stats.ended_at
+                    WHERE stats.efficiency_estimator_version = ?
+                        AND stats.dispatch_count = (
+                            SELECT COUNT(*)
+                            FROM tool_dispatches AS retained
+                            WHERE retained.session_id = stats.session_id
+                                AND retained.created_at <= stats.ended_at
+                        )
+                    "#,
+                    [SOURCE_EFFICIENCY_ESTIMATOR_VERSION.into()],
+                ))
+                .await?;
+            let mut duration_sums = BTreeMap::<String, i64>::new();
+            for row in source_rows {
+                let session_id = row.try_get("", "session_id")?;
+                let duration_ms = row
+                    .try_get::<Option<i64>>("", "duration_ms")?
+                    .unwrap_or_default()
+                    .max(0);
+                let sum = duration_sums.entry(session_id).or_default();
+                *sum = sum.saturating_add(duration_ms);
+            }
+
+            // Retention can remove a v2 source, and session IDs can be reused after it ends.
+            // Reproject only when the complete dispatch set from the original session remains.
+            for (session_id, active_duration_ms) in duration_sums {
+                connection
+                    .execute(Statement::from_sql_and_values(
+                        DbBackend::Sqlite,
+                        "UPDATE session_efficiency_stats SET active_duration_ms = ?, efficiency_estimator_version = ? WHERE session_id = ? AND efficiency_estimator_version = ?",
+                        [
+                            active_duration_ms.into(),
+                            EFFICIENCY_ESTIMATOR_VERSION.into(),
+                            session_id.into(),
+                            SOURCE_EFFICIENCY_ESTIMATOR_VERSION.into(),
+                        ],
+                    ))
+                    .await?;
+            }
+            Ok(())
+        }
+
+        async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
+            // Audit retention makes the original wall-clock span irrecoverable.
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use sea_orm_migration::sea_orm::{
+            ConnectionTrait, Database as SeaDatabase, DbBackend, Statement,
+        };
+
+        #[tokio::test]
+        async fn upgrade_rewrites_v2_spans_as_saturating_duration_sums() -> anyhow::Result<()> {
+            let connection = SeaDatabase::connect("sqlite::memory:").await?;
+            super::super::Migrator::up(&connection, Some(8)).await?;
+            for statement in [
+                "INSERT INTO session_efficiency_stats VALUES ('gap', 10, 2, 100, 0, 0, 0, 1, 0)",
+                "INSERT INTO session_efficiency_stats VALUES ('overlap', 10, 2, 700, 0, 0, 0, 1, 0)",
+                "INSERT INTO session_efficiency_stats VALUES ('partial', 10, 2, 300, 0, 0, 0, 1, 0)",
+                "INSERT INTO session_efficiency_stats VALUES ('precise', 10, 2, 1, 0, 0, 0, 1, 0)",
+                "INSERT INTO session_efficiency_stats VALUES ('retained', 10, 1, 250, 0, 0, 0, 1, 0)",
+                "INSERT INTO session_efficiency_stats VALUES ('reused', 10, 2, 600, 0, 0, 0, 1, 0)",
+                "INSERT INTO session_efficiency_stats VALUES ('saturated', 10, 2, 1, 0, 0, 0, 1, 0)",
+                "INSERT INTO tool_dispatches (created_at, agent_id, slug, agent_label, session_id, tool_name, duration_ms, has_screenshot) VALUES (0, 'agent', 'agent', 'Agent', 'gap', 'navigate', NULL, 0), (1, 'agent', 'agent', 'Agent', 'gap', 'click', -10, 0)",
+                "INSERT INTO tool_dispatches (created_at, agent_id, slug, agent_label, session_id, tool_name, duration_ms, has_screenshot) VALUES (0, 'agent', 'agent', 'Agent', 'overlap', 'navigate', 500, 0), (1, 'agent', 'agent', 'Agent', 'overlap', 'click', 400, 0)",
+                "INSERT INTO tool_dispatches (created_at, agent_id, slug, agent_label, session_id, tool_name, duration_ms, has_screenshot) VALUES (0, 'agent', 'agent', 'Agent', 'partial', 'navigate', 10, 0)",
+                "INSERT INTO tool_dispatches (created_at, agent_id, slug, agent_label, session_id, tool_name, duration_ms, has_screenshot) VALUES (0, 'agent', 'agent', 'Agent', 'precise', 'navigate', 9007199254740992, 0), (1, 'agent', 'agent', 'Agent', 'precise', 'click', 1, 0)",
+                "INSERT INTO tool_dispatches (created_at, agent_id, slug, agent_label, session_id, tool_name, duration_ms, has_screenshot) VALUES (20, 'agent', 'agent', 'Agent', 'reused', 'navigate', 10, 0), (21, 'agent', 'agent', 'Agent', 'reused', 'click', 20, 0)",
+                "INSERT INTO tool_dispatches (created_at, agent_id, slug, agent_label, session_id, tool_name, duration_ms, has_screenshot) VALUES (0, 'agent', 'agent', 'Agent', 'saturated', 'navigate', 9223372036854775807, 0), (1, 'agent', 'agent', 'Agent', 'saturated', 'click', 1, 0)",
+            ] {
+                connection.execute_unprepared(statement).await?;
+            }
+            super::super::Migrator::up(&connection, None).await?;
+            let rows = connection
+                .query_all(Statement::from_string(
+                    DbBackend::Sqlite,
+                    "SELECT session_id, active_duration_ms, efficiency_estimator_version FROM session_efficiency_stats ORDER BY session_id",
+                ))
+                .await?;
+            assert_eq!(
+                rows.into_iter()
+                    .map(|row| Ok((
+                        row.try_get::<String>("", "session_id")?,
+                        row.try_get::<i64>("", "active_duration_ms")?,
+                        row.try_get::<i64>("", "efficiency_estimator_version")?,
+                    )))
+                    .collect::<Result<Vec<_>, DbErr>>()?,
+                [
+                    ("gap".to_owned(), 0, 3),
+                    ("overlap".to_owned(), 900, 3),
+                    ("partial".to_owned(), 300, 2),
+                    ("precise".to_owned(), 9_007_199_254_740_993, 3),
+                    ("retained".to_owned(), 250, 2),
+                    ("reused".to_owned(), 600, 2),
+                    ("saturated".to_owned(), i64::MAX, 3)
+                ]
+            );
             Ok(())
         }
     }
