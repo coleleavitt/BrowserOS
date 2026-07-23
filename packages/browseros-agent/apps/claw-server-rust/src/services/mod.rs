@@ -7,4 +7,5 @@ pub mod recordings;
 pub mod replay;
 pub mod runtime_file;
 pub mod screenshots;
+pub mod session_efficiency;
 pub mod sessions;

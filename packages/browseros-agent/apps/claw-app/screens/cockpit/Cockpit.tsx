@@ -2,8 +2,10 @@ import { CockpitHero } from '@/components/cockpit/CockpitHero'
 import { CockpitOnboarding } from '@/components/cockpit/CockpitOnboarding'
 import { RecentActivity } from '@/components/cockpit/RecentActivity'
 import { RunningGrid } from '@/components/cockpit/RunningGrid'
+import { SavedStatsBand } from '@/components/cockpit/SavedStatsBand'
 import { isUserFacingHarness } from '@/components/harness/harness.types'
 import { useSessions } from '@/modules/api/audit.hooks'
+import { useCockpitStats } from '@/modules/api/cockpit.hooks'
 import { useConnections } from '@/modules/api/connections.hooks'
 import { useCockpitData } from './cockpit.data'
 import { getOnboardingState } from './cockpit-onboarding.helpers'
@@ -58,6 +60,11 @@ export function Cockpit() {
           hasActivity: hasHistoricalActivity,
         })
       : 'ready'
+  const shouldLoadStats =
+    probesResolved && state === 'ready' && !hasLiveSessions
+  const stats = useCockpitStats({
+    enabled: shouldLoadStats,
+  })
 
   if (state !== 'ready') {
     return (
@@ -70,7 +77,11 @@ export function Cockpit() {
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-8 px-8 pt-8 pb-16">
       <CockpitHero />
-      <RunningGrid sessions={sessions} />
+      {shouldLoadStats && stats.data?.hasMeasuredStats ? (
+        <SavedStatsBand stats={stats.data} />
+      ) : (
+        <RunningGrid sessions={sessions} />
+      )}
       <RecentActivity />
     </div>
   )
