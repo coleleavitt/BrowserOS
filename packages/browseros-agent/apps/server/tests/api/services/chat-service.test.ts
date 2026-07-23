@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test'
+import { beforeEach, describe, expect, it, mock } from 'bun:test'
 import * as _ai from 'ai'
 import type { KlavisProxyStatus } from '../../../src/api/services/klavis'
 
@@ -598,6 +598,463 @@ describe('ChatService Klavis session rebuilds', () => {
     expect(createAgentSpy.mock.calls.length - createCallsBefore).toBe(1)
     expect(firstAgent.dispose).not.toHaveBeenCalled()
     expect(firstAgent.messages).toHaveLength(2)
+  })
+})
+
+describe('ChatService chat/agent mode switches', () => {
+  // An agent's toolset and system prompt are frozen when the session is
+  // built, so a mode change only takes effect if the session is rebuilt.
+
+  // resolveLLMConfigSpy is module-scoped and shared with every other describe
+  // in this file. Pin it per test rather than inheriting whatever the last one
+  // happened to leave behind.
+  beforeEach(() => {
+    resolveLLMConfigSpy.mockImplementation(async () => ({
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'test-key',
+    }))
+  })
+
+  function createModeSwitchService() {
+    const browser = {
+      resolveTabIds: mock(
+        async (tabIds: number[]) =>
+          new Map(tabIds.map((tabId) => [tabId, tabId + 100])),
+      ),
+      closePage: mock(async () => {}),
+    }
+    return new ChatService({
+      sessionStore: createSessionStore() as never,
+      klavis: createKlavisStub() as never,
+      browser: browser as never,
+      registry: {} as never,
+    })
+  }
+
+  function modeRequest(conversationId: string, mode: 'chat' | 'agent') {
+    return {
+      conversationId,
+      message: 'please open a new tab and go to github.com',
+      isScheduledTask: false,
+      mode,
+      origin: 'newtab',
+      browserContext: {
+        activeTab: { id: 3, url: 'https://example.com', title: 'Example' },
+      },
+    } as never
+  }
+
+  it('rebuilds the session when the user switches from chat to agent', async () => {
+    const firstAgent = createFakeAgent()
+    const secondAgent = createFakeAgent()
+    agentToReturn = firstAgent
+    let lastPromptUiMessages: MockMessage[] | undefined
+    streamResponseHandler = async ({ onFinish, uiMessages }) => {
+      lastPromptUiMessages = uiMessages
+      await onFinish({ messages: uiMessages ?? [] })
+      return new Response('ok')
+    }
+
+    const service = createModeSwitchService()
+    const createCallsBefore = createAgentSpy.mock.calls.length
+    const conversationId = crypto.randomUUID()
+
+    await service.processMessage(
+      modeRequest(conversationId, 'chat'),
+      new AbortController().signal,
+    )
+
+    agentToReturn = secondAgent
+
+    await service.processMessage(
+      modeRequest(conversationId, 'agent'),
+      new AbortController().signal,
+    )
+
+    const createCalls = createAgentSpy.mock.calls.slice(createCallsBefore)
+    expect(createCalls).toHaveLength(2)
+    expect(firstAgent.dispose).toHaveBeenCalledTimes(1)
+
+    const firstConfig = createCalls[0]?.[0] as {
+      resolvedConfig?: { chatMode?: boolean }
+    }
+    const secondConfig = createCalls[1]?.[0] as {
+      resolvedConfig?: { chatMode?: boolean }
+    }
+    expect(firstConfig?.resolvedConfig?.chatMode).toBe(true)
+    expect(secondConfig?.resolvedConfig?.chatMode).toBe(false)
+
+    // The model-visible half: the prompt copy carries the transition notice,
+    // while the persisted message stays the raw user text.
+    const promptText = lastPromptUiMessages?.at(-1)?.parts[0]?.text ?? ''
+    expect(promptText).toContain('The user switched to agent mode')
+    expect(secondAgent.messages.at(-1)?.parts[0]?.text).toBe(
+      'please open a new tab and go to github.com',
+    )
+  })
+
+  it('leaves ACP sessions alone on a mode switch', async () => {
+    // Deliberate scope, see the carve-out in chat-service.ts. An ACP agent's
+    // BrowserOS instructions live in the workspace instruction file, which a
+    // rebuild does not refresh (ensureWorkspaceInstructionFile skips whenever
+    // isNewConversation is false, and that is false on every rebuild). A
+    // rebuild would leave the agent with a fresh in-band prompt contradicting
+    // the stale on-disk one, so mode switching for ACP needs its own change.
+    const firstAgent = createFakeAgent()
+    agentToReturn = firstAgent
+    streamResponseHandler = async ({ onFinish, uiMessages }) => {
+      await onFinish({ messages: uiMessages ?? [] })
+      return new Response('ok')
+    }
+    resolveLLMConfigSpy.mockImplementation(async () => ({
+      provider: 'claude-code',
+      model: 'claude-opus-4-8',
+      apiKey: 'test-key',
+    }))
+
+    const service = createModeSwitchService()
+    const createCallsBefore = createAgentSpy.mock.calls.length
+    const conversationId = crypto.randomUUID()
+
+    await service.processMessage(
+      modeRequest(conversationId, 'chat'),
+      new AbortController().signal,
+    )
+    await service.processMessage(
+      modeRequest(conversationId, 'agent'),
+      new AbortController().signal,
+    )
+
+    expect(createAgentSpy.mock.calls.length - createCallsBefore).toBe(1)
+    expect(firstAgent.dispose).not.toHaveBeenCalled()
+  })
+
+  it('re-restricts the session when switching back to chat mode', async () => {
+    // The toggle has to enforce in both directions. Rebuilding only on
+    // chat -> agent would leave chat -> agent -> chat holding full write tools
+    // while the UI reads chat.
+    const firstAgent = createFakeAgent()
+    const secondAgent = createFakeAgent()
+    const thirdAgent = createFakeAgent()
+    agentToReturn = firstAgent
+    streamResponseHandler = async ({ onFinish, uiMessages }) => {
+      await onFinish({ messages: uiMessages ?? [] })
+      return new Response('ok')
+    }
+
+    const service = createModeSwitchService()
+    const createCallsBefore = createAgentSpy.mock.calls.length
+    const conversationId = crypto.randomUUID()
+
+    await service.processMessage(
+      modeRequest(conversationId, 'chat'),
+      new AbortController().signal,
+    )
+    agentToReturn = secondAgent
+    await service.processMessage(
+      modeRequest(conversationId, 'agent'),
+      new AbortController().signal,
+    )
+    agentToReturn = thirdAgent
+    await service.processMessage(
+      modeRequest(conversationId, 'chat'),
+      new AbortController().signal,
+    )
+
+    const createCalls = createAgentSpy.mock.calls.slice(createCallsBefore)
+    expect(createCalls).toHaveLength(3)
+    const thirdConfig = createCalls[2]?.[0] as {
+      resolvedConfig?: { chatMode?: boolean }
+    }
+    expect(thirdConfig?.resolvedConfig?.chatMode).toBe(true)
+  })
+
+  it('does not rebuild the session when the mode is unchanged', async () => {
+    const firstAgent = createFakeAgent()
+    agentToReturn = firstAgent
+    streamResponseHandler = async ({ onFinish, uiMessages }) => {
+      await onFinish({ messages: uiMessages ?? [] })
+      return new Response('ok')
+    }
+
+    const service = createModeSwitchService()
+    const createCallsBefore = createAgentSpy.mock.calls.length
+    const conversationId = crypto.randomUUID()
+
+    await service.processMessage(
+      modeRequest(conversationId, 'agent'),
+      new AbortController().signal,
+    )
+    await service.processMessage(
+      modeRequest(conversationId, 'agent'),
+      new AbortController().signal,
+    )
+
+    expect(createAgentSpy.mock.calls.length - createCallsBefore).toBe(1)
+    expect(firstAgent.dispose).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatService single-rebuild reconciliation', () => {
+  // When several session inputs change in the same turn, the session must be
+  // rebuilt exactly once (one AiSdkAgent.create beyond the initial build), and
+  // every applicable change notice must still reach the model.
+
+  beforeEach(() => {
+    resolveLLMConfigSpy.mockImplementation(async () => ({
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'test-key',
+    }))
+  })
+
+  function makeService(getKlavis: () => KlavisProxyStatus) {
+    const browser = {
+      resolveTabIds: mock(
+        async (tabIds: number[]) =>
+          new Map(tabIds.map((tabId) => [tabId, tabId + 100])),
+      ),
+      closePage: mock(async () => {}),
+    }
+    return new ChatService({
+      sessionStore: createSessionStore() as never,
+      klavis: createKlavisStub(getKlavis) as never,
+      browser: browser as never,
+      registry: {} as never,
+    })
+  }
+
+  function captureStreamPrompt() {
+    const captured: { prompt?: MockMessage[] } = {}
+    streamResponseHandler = async ({ onFinish, uiMessages }) => {
+      captured.prompt = uiMessages
+      await onFinish({ messages: uiMessages ?? [] })
+      return new Response('ok')
+    }
+    return captured
+  }
+
+  it('rebuilds once and emits both notices when MCP servers and mode change together', async () => {
+    const firstAgent = createFakeAgent()
+    const secondAgent = createFakeAgent()
+    agentToReturn = firstAgent
+    const captured = captureStreamPrompt()
+
+    let klavis: KlavisProxyStatus = { state: 'connecting' }
+    const service = makeService(() => klavis)
+    const before = createAgentSpy.mock.calls.length
+    const conversationId = crypto.randomUUID()
+    const base = {
+      conversationId,
+      isScheduledTask: false,
+      origin: 'newtab',
+      browserContext: {
+        activeTab: { id: 3, url: 'https://example.com', title: 'Example' },
+        enabledMcpServers: ['slack'],
+      },
+    }
+
+    await service.processMessage(
+      { ...base, message: 'hi', mode: 'chat' } as never,
+      new AbortController().signal,
+    )
+    agentToReturn = secondAgent
+    klavis = { state: 'ready', toolCount: 0 }
+    await service.processMessage(
+      { ...base, message: 'now act', mode: 'agent' } as never,
+      new AbortController().signal,
+    )
+
+    // One initial build + exactly one rebuild covering both changes.
+    expect(createAgentSpy.mock.calls.length - before).toBe(2)
+    expect(firstAgent.dispose).toHaveBeenCalledTimes(1)
+
+    const text = captured.prompt?.at(-1)?.parts[0]?.text ?? ''
+    expect(text).toContain(
+      'Klavis app integration tools are now available for the following connected apps: slack.',
+    )
+    expect(text).toContain('The user switched to agent mode')
+  })
+
+  it('rebuilds once and emits both notices when workspace and mode change together', async () => {
+    const firstAgent = createFakeAgent()
+    const secondAgent = createFakeAgent()
+    agentToReturn = firstAgent
+    const captured = captureStreamPrompt()
+
+    const service = makeService(() => ({ state: 'stopped' }))
+    const before = createAgentSpy.mock.calls.length
+    const conversationId = crypto.randomUUID()
+    const base = {
+      conversationId,
+      isScheduledTask: false,
+      origin: 'newtab',
+      browserContext: {
+        activeTab: { id: 3, url: 'https://example.com', title: 'Example' },
+      },
+    }
+
+    await service.processMessage(
+      { ...base, message: 'hi', mode: 'agent' } as never,
+      new AbortController().signal,
+    )
+    agentToReturn = secondAgent
+    await service.processMessage(
+      {
+        ...base,
+        message: 'restrict me',
+        mode: 'chat',
+        userWorkingDir: '/ws',
+      } as never,
+      new AbortController().signal,
+    )
+
+    expect(createAgentSpy.mock.calls.length - before).toBe(2)
+    expect(firstAgent.dispose).toHaveBeenCalledTimes(1)
+
+    const text = captured.prompt?.at(-1)?.parts[0]?.text ?? ''
+    expect(text).toContain(
+      'The user connected a workspace during this conversation, but read-only chat mode',
+    )
+    expect(text).toContain('The user switched to read-only chat mode')
+  })
+
+  it('keeps the workspace notice when MCP servers also change in the same turn', async () => {
+    // Regression guard for the fix. The previous flag-based flow rebuilt on the
+    // MCP branch first, which restamped session.workingDir and silently dropped
+    // the workspace notice. Reading a pre-rebuild snapshot emits both.
+    const firstAgent = createFakeAgent()
+    const secondAgent = createFakeAgent()
+    agentToReturn = firstAgent
+    const captured = captureStreamPrompt()
+
+    let klavis: KlavisProxyStatus = { state: 'connecting' }
+    const service = makeService(() => klavis)
+    const before = createAgentSpy.mock.calls.length
+    const conversationId = crypto.randomUUID()
+    const base = {
+      conversationId,
+      isScheduledTask: false,
+      origin: 'newtab',
+      browserContext: {
+        activeTab: { id: 3, url: 'https://example.com', title: 'Example' },
+        enabledMcpServers: ['slack'],
+      },
+    }
+
+    await service.processMessage(
+      { ...base, message: 'hi', mode: 'agent' } as never,
+      new AbortController().signal,
+    )
+    agentToReturn = secondAgent
+    klavis = { state: 'ready', toolCount: 0 }
+    await service.processMessage(
+      {
+        ...base,
+        message: 'connect a workspace',
+        mode: 'agent',
+        userWorkingDir: '/ws',
+      } as never,
+      new AbortController().signal,
+    )
+
+    // Still a single rebuild for both changes.
+    expect(createAgentSpy.mock.calls.length - before).toBe(2)
+    expect(firstAgent.dispose).toHaveBeenCalledTimes(1)
+
+    const text = captured.prompt?.at(-1)?.parts[0]?.text ?? ''
+    expect(text).toContain(
+      'Klavis app integration tools are now available for the following connected apps: slack.',
+    )
+    expect(text).toContain(
+      'The user connected a workspace during this conversation. Filesystem tools are now available. Working directory: /ws',
+    )
+  })
+
+  it('rebuilds an ACP session for an MCP change without adopting a mid-conversation mode switch', async () => {
+    // The ACP exclusion must hold even when another input triggers the rebuild:
+    // an ACP agent's mode lives in the on-disk instruction file that a rebuild
+    // does not refresh, so a Klavis-driven rebuild must not flip it to chat.
+    const firstAgent = createFakeAgent()
+    const secondAgent = createFakeAgent()
+    agentToReturn = firstAgent
+    captureStreamPrompt()
+    resolveLLMConfigSpy.mockImplementation(async () => ({
+      provider: 'claude-code',
+      model: 'claude-opus-4-8',
+      apiKey: 'test-key',
+    }))
+
+    let klavis: KlavisProxyStatus = { state: 'connecting' }
+    const service = makeService(() => klavis)
+    const before = createAgentSpy.mock.calls.length
+    const conversationId = crypto.randomUUID()
+    const base = {
+      conversationId,
+      isScheduledTask: false,
+      origin: 'newtab',
+      browserContext: {
+        activeTab: { id: 3, url: 'https://example.com', title: 'Example' },
+        enabledMcpServers: ['slack'],
+      },
+    }
+
+    await service.processMessage(
+      { ...base, message: 'hi', mode: 'agent' } as never,
+      new AbortController().signal,
+    )
+    agentToReturn = secondAgent
+    klavis = { state: 'ready', toolCount: 0 }
+    await service.processMessage(
+      { ...base, message: 'now restrict me', mode: 'chat' } as never,
+      new AbortController().signal,
+    )
+
+    const createCalls = createAgentSpy.mock.calls.slice(before)
+    // The MCP change still rebuilds the ACP session.
+    expect(createCalls).toHaveLength(2)
+    expect(firstAgent.dispose).toHaveBeenCalledTimes(1)
+    // ...but the rebuild keeps the conversation's original agent mode instead
+    // of adopting the ignored chat toggle.
+    const rebuiltConfig = createCalls[1]?.[0] as {
+      resolvedConfig?: { chatMode?: boolean }
+    }
+    expect(rebuiltConfig?.resolvedConfig?.chatMode).toBe(false)
+  })
+
+  it('keeps an ACP session in agent mode even when the request asks for chat mode', async () => {
+    // ACP ignores the chat toggle entirely; chat mode is never enforced for it,
+    // so the build is agent mode regardless of what the request carries.
+    const firstAgent = createFakeAgent()
+    agentToReturn = firstAgent
+    captureStreamPrompt()
+    resolveLLMConfigSpy.mockImplementation(async () => ({
+      provider: 'claude-code',
+      model: 'claude-opus-4-8',
+      apiKey: 'test-key',
+    }))
+
+    const service = makeService(() => ({ state: 'stopped' }))
+    const before = createAgentSpy.mock.calls.length
+    await service.processMessage(
+      {
+        conversationId: crypto.randomUUID(),
+        message: 'hi',
+        isScheduledTask: false,
+        mode: 'chat',
+        origin: 'newtab',
+        browserContext: {
+          activeTab: { id: 3, url: 'https://example.com', title: 'Example' },
+        },
+      } as never,
+      new AbortController().signal,
+    )
+
+    const createConfig = createAgentSpy.mock.calls[before]?.[0] as {
+      resolvedConfig?: { chatMode?: boolean }
+    }
+    expect(createConfig?.resolvedConfig?.chatMode).toBe(false)
   })
 })
 
